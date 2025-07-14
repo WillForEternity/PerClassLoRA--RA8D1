@@ -8,7 +8,6 @@
 #include "mcu_constraints.h"
 
 #define SERVER_PORT 65432
-#define SERVER_IP "127.0.0.1"
 #define NUM_LANDMARKS 6
 #define NUM_COORDS 3
 #define INPUT_BUFFER_SIZE (NUM_LANDMARKS * NUM_COORDS)
@@ -27,36 +26,46 @@ void parse_data(char* buffer) {
 }
 
 int main() {
-    int sock = 0;
-    struct sockaddr_in serv_addr;
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
     char buffer[RECV_BUFFER_SIZE] = {0};
 
-    printf("RA8D1 Simulation: Socket Client Starting...\n");
+    printf("RA8D1 Simulation: Socket Server Starting...\n");
 
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        printf("\n Socket creation error \n");
-        return -1;
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
     }
 
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(SERVER_PORT);
-
-    if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
-        printf("\nInvalid address/ Address not supported \n");
-        return -1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+        perror("setsockopt");
+        exit(EXIT_FAILURE);
     }
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(SERVER_PORT);
 
-    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        printf("\nConnection Failed \n");
-        return -1;
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address))<0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
     }
-
-    printf("Connected to Hand Tracker server.\n");
+    if (listen(server_fd, 3) < 0) {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
+    printf("Server listening on port %d\n", SERVER_PORT);
+    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0) {
+        perror("accept");
+        exit(EXIT_FAILURE);
+    }
+    printf("Client connected.\n");
 
     while (1) {
-        int bytes_received = read(sock, buffer, RECV_BUFFER_SIZE - 1);
+        int bytes_received = read(new_socket, buffer, RECV_BUFFER_SIZE - 1);
         if (bytes_received > 0) {
-            buffer[bytes_received] = '\0'; // Null-terminate the received data
+            buffer[bytes_received] = '\0';
             parse_data(buffer);
 
             printf("Received %d floats: [", INPUT_BUFFER_SIZE);
@@ -66,7 +75,7 @@ int main() {
             printf("]\n");
 
         } else if (bytes_received == 0) {
-            printf("Server closed connection.\n");
+            printf("Client disconnected.\n");
             break;
         } else {
             perror("read");
@@ -74,6 +83,7 @@ int main() {
         }
     }
 
-    close(sock);
+    close(new_socket);
+    close(server_fd);
     return 0;
 }

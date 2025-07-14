@@ -28,40 +28,54 @@ def get_landmark_data(hand_landmarks):
     return landmark_data
 
 def run_inference_mode():
-    """Starts a socket server and streams hand landmark data to a client."""
+    """Connects to the C simulation server and streams hand landmark data."""
     print("Starting INFERENCE mode...")
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))
-        s.listen()
-        print(f"Server listening on {HOST}:{PORT}")
-        conn, addr = s.accept()
-        with conn:
-            print('Connected by', addr)
-            cap = cv2.VideoCapture(0)
-            while cap.isOpened():
-                success, image = cap.read()
-                if not success: continue
+    
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    retries = 0
+    while True:
+        try:
+            client_socket.connect((HOST, PORT))
+            print(f"Successfully connected to C server at {HOST}:{PORT}")
+            break
+        except ConnectionRefusedError:
+            retries += 1
+            if retries >= 10:
+                print("Connection failed after multiple retries. Is the C simulation running?")
+                return
+            print(f"Connection refused. Retrying in 2 seconds... ({retries}/10)")
+            time.sleep(2)
 
-                image = cv2.flip(image, 1)
-                image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                results = hands.process(image_rgb)
+    cap = cv2.VideoCapture(0)
+    try:
+        while cap.isOpened():
+            success, image = cap.read()
+            if not success: continue
 
-                if results.multi_hand_landmarks:
-                    for hand_landmarks in results.multi_hand_landmarks:
-                        mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-                        landmark_data = get_landmark_data(hand_landmarks)
-                        data_string = ",".join(map(str, landmark_data))
-                        try:
-                            conn.sendall(data_string.encode('utf-8'))
-                        except (BrokenPipeError, ConnectionResetError):
-                            print("Client disconnected.")
-                            cap.release()
-                            return
+            image = cv2.flip(image, 1)
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            results = hands.process(image_rgb)
 
-                cv2.imshow('Inference Mode', image)
-                if cv2.waitKey(5) & 0xFF == 27: break
-                time.sleep(0.05)
-            cap.release()
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                    landmark_data = get_landmark_data(hand_landmarks)
+                    data_string = ",".join(map(str, landmark_data))
+                    try:
+                        client_socket.sendall(data_string.encode('utf-8'))
+                    except (BrokenPipeError, ConnectionResetError):
+                        print("Server disconnected.")
+                        return
+
+            cv2.imshow('Inference Mode', image)
+            if cv2.waitKey(5) & 0xFF == 27: break
+            time.sleep(0.05) # Add a small delay to prevent overwhelming the C client
+    finally:
+        print("Closing connection and camera.")
+        cap.release()
+        client_socket.close()
+        cv2.destroyAllWindows()
 
 def run_collection_mode():
     """Collects training data for specified hand gestures."""

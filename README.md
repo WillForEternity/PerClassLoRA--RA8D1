@@ -9,7 +9,8 @@ The core idea is to train a base hand gesture recognition model, deploy it to a 
 ```
 .
 ├── Python_Hand_Tracker/         # Main Python scripts and virtual environments
-│   ├── venv/                      # Virtual environment for the project
+│   ├── venv_tracker/              # Virtual environment for the hand tracker
+│   ├── venv_training/             # Virtual environment for model training
 │   ├── hand_tracker.py          # Runs the MediaPipe hand tracker for inference or data collection
 │   ├── requirements_tracker.txt # Pip requirements for the hand tracker (mediapipe, opencv)
 │   ├── requirements_training.txt# Pip requirements for model training (tensorflow, tf2onnx)
@@ -33,32 +34,39 @@ The core idea is to train a base hand gesture recognition model, deploy it to a 
 
 ## Setup and Usage
 
-This project uses two separate Python environments to manage conflicting dependencies.
+This project uses two separate Python virtual environments to manage conflicting dependencies between the hand tracker (`mediapipe`) and the model training (`tensorflow`).
 
 ### 1. Environment Setup
 
-First, create a Python 3.11 virtual environment:
+First, create both virtual environments using Python 3.11:
 
 ```bash
-python3.11 -m venv Python_Hand_Tracker/venv
-source Python_Hand_Tracker/venv/bin/activate
+# Create the environment for the hand tracker
+python3.11 -m venv Python_Hand_Tracker/venv_tracker
+
+# Create the environment for model training
+python3.11 -m venv Python_Hand_Tracker/venv_training
 ```
 
-Next, install the dependencies for both tracking and training:
+Next, install the dependencies into their respective environments:
 
 ```bash
 # Install tracker dependencies
-pip install -r Python_Hand_Tracker/requirements_tracker.txt
+./Python_Hand_Tracker/venv_tracker/bin/pip install -r Python_Hand_Tracker/requirements_tracker.txt
 
 # Install training dependencies
-pip install -r Python_Hand_Tracker/requirements_training.txt
+./Python_Hand_Tracker/venv_training/bin/pip install -r Python_Hand_Tracker/requirements_training.txt
 ```
 
 ### 2. Data Collection
 
-To collect training data for a new gesture, run the `hand_tracker.py` script in data collection mode. For example, to collect data for the 'fist' gesture:
+To collect training data for a new gesture, activate the **tracker** environment and run the `hand_tracker.py` script. For example, to collect data for the 'fist' gesture:
 
 ```bash
+# Activate the tracker environment
+source Python_Hand_Tracker/venv_tracker/bin/activate
+
+# Run the script
 python Python_Hand_Tracker/hand_tracker.py --mode collect --gesture fist
 ```
 
@@ -66,9 +74,13 @@ Hold your hand in the desired gesture in front of the camera. Press 'q' to quit 
 
 ### 3. Model Training
 
-Once you have collected data for all your gestures, run the training script:
+Once you have collected data, activate the **training** environment and run the training script:
 
 ```bash
+# Activate the training environment
+source Python_Hand_Tracker/venv_training/bin/activate
+
+# Run the script
 python Python_Hand_Tracker/train_model.py
 ```
 
@@ -80,7 +92,9 @@ This will:
 
 ### 4. Run the Simulation
 
-First, compile and run the C-based MCU simulation:
+This step requires two separate terminals.
+
+**Terminal 1: Run the C Simulation**
 
 ```bash
 cd RA8D1_Simulation
@@ -88,9 +102,15 @@ gcc main.c -o simulation
 ./simulation
 ```
 
-Then, in a separate terminal, run the Python hand tracker in inference mode:
+**Terminal 2: Run the Python Hand Tracker**
+
+Activate the **tracker** environment and run the `hand_tracker.py` script in inference mode:
 
 ```bash
+# Activate the tracker environment
+source Python_Hand_Tracker/venv_tracker/bin/activate
+
+# Run the script in inference mode
 python Python_Hand_Tracker/hand_tracker.py --mode inference
 ```
 

@@ -4,11 +4,14 @@ __pycache__/
 
 # Virtual Environment
 venv/
+venv_tracker/
+venv_training/
 
 # Compiled files
 *.o
 *.out
 ra8d1_sim
+simulation
 
 # OS-specific
 .DS_Store
