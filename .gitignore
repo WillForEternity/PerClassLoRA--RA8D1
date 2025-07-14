@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+venv/
+
+# Compiled files
+*.o
+*.out
+ra8d1_sim
+
+# OS-specific
+.DS_Store
