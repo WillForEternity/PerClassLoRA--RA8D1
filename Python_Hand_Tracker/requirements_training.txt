@@ -1,0 +1,5 @@
+tf-keras
+scikit-learn
+pandas
+tf2onnx
+numpy==1.23.5

@@ -1,5 +1,0 @@
-mediapipe
-opencv-python
-tensorflow
-scikit-learn
-tf2onnx
