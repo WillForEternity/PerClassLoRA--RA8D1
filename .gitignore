@@ -5,6 +5,7 @@ __pycache__/
 # Virtual Environments
 Python_Hand_Tracker/venv_training/
 Python_Hand_Tracker/venv_tracker/
+gui_app/venv_gui/
 
 # Compiled C files
 *.o
@@ -17,3 +18,9 @@ models/saved_model/
 
 # OS-specific
 .DS_Store
+
+# Log files
+*.log
+
+# Binary model artifacts
+*.bin
