@@ -21,19 +21,22 @@ INPUT_SHAPE = (NUM_LANDMARKS * NUM_COORDS,)
 
 # --- 1. Load and Preprocess Data ---
 def load_data():
+    print(f"--- Loading data from: {os.path.abspath(DATA_DIR)} ---")
     data = []
     labels = []
     for i, gesture in enumerate(GESTURES):
         file_path = os.path.join(DATA_DIR, f'{gesture}.csv')
+        print(f"Checking for: {file_path}")
         if not os.path.exists(file_path):
-            print(f"Warning: Data file not found at {file_path}")
+            print(f"[WARNING] Data file not found at {file_path}")
             continue
+        print(f"[SUCCESS] Found and loading {gesture}.csv")
         df = pd.read_csv(file_path, header=None)
         data.append(df.values)
         labels.extend([gesture] * len(df))
 
     if not data:
-        print("Error: No data loaded. Please run data collection first.")
+        print("[FAILURE] No data was loaded. Please ensure CSV files exist and are not empty.")
         return None, None, None
 
     X = np.vstack(data)
@@ -43,11 +46,7 @@ def load_data():
     encoder = LabelEncoder()
     y_encoded = encoder.fit_transform(y)
 
-    # Scale features
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    return X_scaled, y_encoded, encoder.classes_
+    return X, y_encoded, encoder.classes_
 
 # --- 2. Build the Model ---
 def build_model(num_classes):
@@ -70,6 +69,7 @@ if __name__ == '__main__':
     # 1. Load Data
     X, y, classes = load_data()
     if X is None:
+        print("Exiting due to data loading failure.")
         exit()
 
     print(f"Loaded {X.shape[0]} samples for {len(classes)} gestures: {classes}")

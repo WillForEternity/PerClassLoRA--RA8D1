@@ -33,25 +33,36 @@ def get_landmark_data(hand_landmarks):
 
 def run_inference_mode():
     """Connects to the C simulation server and streams hand landmark data."""
-    print("Starting INFERENCE mode...")
+    print("--- Starting INFERENCE mode ---")
     
+    # 1. Connect to server
+    print("Attempting to connect to C server...")
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    
     retries = 0
     while True:
         try:
             client_socket.connect((HOST, PORT))
-            print(f"Successfully connected to C server at {HOST}:{PORT}")
+            print(f"[SUCCESS] Connected to C server at {HOST}:{PORT}")
             break
         except ConnectionRefusedError:
             retries += 1
             if retries >= 10:
-                print("Connection failed after multiple retries. Is the C simulation running?")
+                print("[FAILURE] Connection failed after 10 retries. Is the C simulation running?")
                 return
             print(f"Connection refused. Retrying in 2 seconds... ({retries}/10)")
             time.sleep(2)
 
+    # 2. Initialize Camera
+    print("Initializing camera...")
     cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("[FAILURE] Cannot open camera. Is it connected or used by another application?")
+        client_socket.close()
+        return
+    print("[SUCCESS] Camera initialized.")
+
+    # 3. Start main loop
+    print("Starting main inference loop...")
     try:
         while cap.isOpened():
             success, image = cap.read()
