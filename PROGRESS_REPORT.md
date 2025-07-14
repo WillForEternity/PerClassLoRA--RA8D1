@@ -6,36 +6,39 @@ To design and simulate a complete adaptive machine learning workflow on a resour
 
 ---
 
-## Current Status: Phase 2 Complete
+## Current Status: Phase 3 In Progress
 
-We have successfully completed the first two major phases of the project. The primary blocker related to dependency conflicts has been resolved, and we now have a stable, reproducible workflow for training and exporting the model.
+We have successfully established the end-to-end data pipeline between the Python hand tracker and the C simulation, marking a significant milestone in the project. The core infrastructure for live data streaming and processing is now complete.
 
 ### Key Accomplishments
 
 - **✅ Phase 1: Environment Setup & Data Collection (Complete)**
-  - A Python-based hand tracker using `MediaPipe` was developed to stream hand landmark data.
-  - A data collection mode was implemented to capture and save labeled gesture data into `.csv` files.
-  - A C-based client was created to simulate the MCU, receiving data from the Python tracker via TCP sockets.
+  - A Python-based hand tracker using `MediaPipe` was developed.
+  - A data collection mode was implemented to capture and save labeled gesture data.
 
 - **✅ Phase 2: Offline Model Training & Conversion (Complete)**
-  - **Resolved Critical Dependency Conflicts:** Overcame a series of complex dependency issues involving `tensorflow`, `tf2onnx`, `numpy`, and `protobuf` by establishing a stable Python 3.11 environment with carefully pinned library versions.
-  - **Successful Model Training:** A neural network was successfully trained on the collected gesture data, achieving high accuracy.
-  - **Successful ONNX Export:** The trained TensorFlow model was successfully converted to the `model.onnx` format, which is now ready for deployment in the C/C++ simulation.
+  - **Resolved Critical Dependency Conflicts:** Overcame complex dependency issues by establishing a stable two-environment setup for tracking and training.
+  - **Successful Model Training:** A neural network was successfully trained on the collected gesture data.
+  - **Successful ONNX Export:** The trained TensorFlow model was successfully converted to the `model.onnx` format.
+
+- **✅ Phase 3: Simulation and Adaptation (In Progress)**
+  - **Established Robust C/Python Data Pipeline:**
+    - Refactored the C simulation to act as a TCP server and the Python script as a client.
+    - Implemented resilient connection logic to handle startup race conditions.
+    - Successfully demonstrated live streaming of hand landmark data from the Python client to the C server.
 
 ### Project Unblocked
 
-The successful generation of the `model.onnx` file marks a major milestone. The project is no longer blocked by environment or dependency issues.
+The successful data pipeline and the generated `model.onnx` file mean the project is fully unblocked and ready for the next stage of development.
 
 ---
 
-## Next Steps: Phase 3 - Simulation and Adaptation
+## Next Steps: ONNX Integration
 
-With the base model ready, the next phase focuses on integrating it into the simulation and implementing the adaptive learning mechanism.
+With the data pipeline in place, the immediate next step is to integrate the ONNX model into the C simulation.
 
-- **Integrate ONNX Runtime:** The C simulation will be updated to include the ONNX runtime, allowing it to load `model.onnx` and perform inference on the incoming hand landmark data.
+- **Integrate ONNX Runtime:** The C simulation will be updated to include the ONNX Runtime C API. This involves downloading the library, updating the C code to load the model and run inference, and modifying the build process to link against it.
 
-- **Implement Per-Class LoRA:** The core adaptive learning mechanism will be implemented. This involves adding the LoRA layers to the model and developing the logic to update their weights based on new, user-specific data.
+- **Implement Full Inference Pipeline:** The `main.c` loop will be updated to pass the received landmark data to the ONNX model, execute inference, and print the predicted gesture.
 
-- **Simulate On-Device Learning:** The full feedback loop will be simulated, where the model adapts to new gestures in real-time within the constraints of the MCU environment.
-
-- **Memory and Performance Auditing:** The memory footprint and performance of the simulation will be continuously audited against the `mcu_constraints.h` to ensure it remains within the target device's limits.
+- **Future Work:** Once inference is working, we will proceed with implementing the Per-Class LoRA adaptation mechanism.

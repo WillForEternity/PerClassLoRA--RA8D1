@@ -60,17 +60,17 @@ Next, install the dependencies into their respective environments:
 
 ### 2. Data Collection
 
-To collect training data for a new gesture, activate the **tracker** environment and run the `hand_tracker.py` script. For example, to collect data for the 'fist' gesture:
+To collect training data, activate the **tracker** environment and run the `hand_tracker.py` script in collection mode:
 
 ```bash
 # Activate the tracker environment
 source Python_Hand_Tracker/venv_tracker/bin/activate
 
-# Run the script
-python Python_Hand_Tracker/hand_tracker.py --mode collect --gesture fist
+# Run the script in data collection mode
+python Python_Hand_Tracker/hand_tracker.py --mode collect
 ```
 
-Hold your hand in the desired gesture in front of the camera. Press 'q' to quit and save the data to `models/data/fist.csv`.
+The script will guide you through collecting samples for several gestures (fist, palm, pointing). Follow the on-screen prompts. The data will be saved automatically to the `models/data/` directory.
 
 ### 3. Model Training
 
@@ -90,14 +90,40 @@ This will:
 3.  Save the trained model to `models/saved_model`.
 4.  Convert and save the final model to `models/model.onnx`.
 
-### 4. Run the Simulation
+### 4. Run the End-to-End Simulation
 
-This step requires two separate terminals.
+This step demonstrates the live data pipeline from the Python hand tracker to the C simulation. It requires two separate terminals.
 
-**Terminal 1: Run the C Simulation**
+**Terminal 1: Start the C Simulation Server**
+
+First, compile and run the C application. This will act as the server, waiting for the Python client to connect.
 
 ```bash
+# Navigate to the simulation directory
 cd RA8D1_Simulation
+
+# Compile the C code
+gcc main.c -o simulation
+
+# Run the simulation server
+./simulation
+```
+
+The server will start and print `Server listening on port 65432`.
+
+**Terminal 2: Start the Python Hand Tracker Client**
+
+In a new terminal, activate the **tracker** environment and run the hand tracker in inference mode. It will connect to the C server and begin streaming data.
+
+```bash
+# Activate the tracker environment
+source Python_Hand_Tracker/venv_tracker/bin/activate
+
+# Run the hand tracker client
+python Python_Hand_Tracker/hand_tracker.py --mode inference
+```
+
+Once connected, you will see the live camera feed. The C server terminal will print the stream of floating-point numbers representing your hand landmarks.
 gcc main.c -o simulation
 ./simulation
 ```
