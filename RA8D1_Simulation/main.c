@@ -108,25 +108,29 @@ int main() {
     if (listen(server_fd, 3) < 0) { perror("listen"); exit(EXIT_FAILURE); }
     
     printf("Server listening on port %d\n", SERVER_PORT);
-    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0) { perror("accept"); exit(EXIT_FAILURE); }
-    printf("Client connected. Waiting for data...\n");
+    while(1) {
+        printf("Waiting for a client connection...\n");
+        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0) { 
+            perror("accept"); 
+            continue; // Continue to the next iteration to wait for a connection
+        }
+        printf("Client connected. Waiting for data...\n");
 
-    while (1) {
-        ssize_t bytes_received = read(new_socket, buffer, RECV_BUFFER_SIZE - 1);
-        printf("Bytes received: %zd\n", bytes_received);
-        if (bytes_received > 0) {
-            buffer[bytes_received] = '\0';
-            parse_data(buffer);
-            printf("Running inference...\n");
-            run_inference();
-        } else {
-            printf("Client disconnected.\n");
-            break;
+        while (1) {
+            ssize_t bytes_received = read(new_socket, buffer, RECV_BUFFER_SIZE - 1);
+            printf("Bytes received: %zd\n", bytes_received);
+            if (bytes_received > 0) {
+                buffer[bytes_received] = '\0';
+                parse_data(buffer);
+                printf("Running inference...\n");
+                run_inference();
+            } else {
+                printf("Client disconnected.\n");
+                close(new_socket);
+                break; // Break from inner loop to wait for a new connection
+            }
         }
     }
-
-    // --- Cleanup ---
-    close(new_socket);
     close(server_fd);
     g_ort->ReleaseSession(g_session);
     g_ort->ReleaseEnv(g_env);
