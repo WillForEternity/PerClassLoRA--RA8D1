@@ -7,7 +7,7 @@ The core idea is to train a base hand gesture recognition model, deploy it to a 
 ## File Structure
 
 ```
-/
+.
 ├── Python_Hand_Tracker/         # Main Python scripts and virtual environments
 │   ├── venv/                      # Virtual environment for the project
 │   ├── hand_tracker.py          # Runs the MediaPipe hand tracker for inference or data collection
