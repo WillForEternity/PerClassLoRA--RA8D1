@@ -15,7 +15,11 @@ mp_drawing = mp.solutions.drawing_utils
 HOST = '127.0.0.1'
 PORT = 65432
 KEY_POINTS_INDICES = [0, 4, 8, 12, 16, 20] # Wrist, Thumb, Index, Middle, Ring, Pinky tips
-DATA_DIR = '../models/data'
+
+# --- Path Setup ---
+# Get the absolute path to the project's root directory
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+DATA_DIR = os.path.join(PROJECT_ROOT, 'models', 'data')
 
 # --- Functions ---
 
