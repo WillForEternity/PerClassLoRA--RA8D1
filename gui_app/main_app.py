@@ -69,6 +69,7 @@ class MainWindow(QMainWindow):
         
         self.pages["Setup"].setup_completed.connect(self.on_setup_completed)
         self.pages["Data Collection"].set_navigation_enabled.connect(self.set_navigation_enabled)
+        self.pages["Training"].set_navigation_enabled.connect(self.set_navigation_enabled)
 
         self.nav_button_group = QButtonGroup(self)
         self.nav_button_group.setExclusive(True)

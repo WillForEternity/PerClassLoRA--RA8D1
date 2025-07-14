@@ -1,14 +1,53 @@
 import sys
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QFrame, QStackedWidget
 from PyQt6.QtGui import QFont
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot
+import subprocess
+import os
 
-# This will be expanded later with a real worker thread
+class TrainingWorker(QThread):
+    """Runs the training script as a subprocess in its own venv."""
+    new_log_message = pyqtSignal(str)
+
+    def run(self):
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        training_venv_python = os.path.join(project_root, "Python_Hand_Tracker", "venv_training", "bin", "python")
+        training_script = os.path.join(project_root, "Python_Hand_Tracker", "train_model.py")
+
+        if not os.path.exists(training_venv_python) or not os.path.exists(training_script):
+            self.new_log_message.emit("[ERROR] Training environment or script not found.")
+            self.new_log_message.emit(f"Venv Path: {training_venv_python}")
+            self.new_log_message.emit(f"Script Path: {training_script}")
+            return
+
+        try:
+            process = subprocess.Popen(
+                [training_venv_python, training_script],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+
+            for line in iter(process.stdout.readline, ''):
+                self.new_log_message.emit(line.strip())
+            
+            process.stdout.close()
+            process.wait()
+
+        except Exception as e:
+            self.new_log_message.emit(f"\n[FATAL ERROR] Failed to run training subprocess: {e}")
 
 class TrainingPage(QWidget):
+    set_navigation_enabled = pyqtSignal(bool)
+
     def __init__(self):
         super().__init__()
         self.is_setup_complete = False
+        self.training_worker = TrainingWorker()
+        self.training_worker.new_log_message.connect(self.append_log_message)
+        self.training_worker.finished.connect(self.on_training_finished)
         self.setup_ui()
 
     def setup_ui(self):
@@ -44,6 +83,7 @@ class TrainingPage(QWidget):
         self.run_button = QPushButton("Start Training")
         self.run_button.setFont(QFont("Arial", 12))
         self.run_button.setMinimumHeight(40)
+        self.run_button.clicked.connect(self.start_training_process)
         left_panel.addWidget(self.run_button)
 
         self.log_console = QTextEdit()
@@ -61,6 +101,24 @@ class TrainingPage(QWidget):
         main_content_layout.addWidget(graph_placeholder, 1)
         
         self.page_stack.addWidget(main_view)
+
+    def start_training_process(self):
+        self.log_console.clear()
+        self.run_button.setEnabled(False)
+        self.run_button.setText("Training in Progress...")
+        self.set_navigation_enabled.emit(False)
+        self.training_worker.start()
+
+    @pyqtSlot(str)
+    def append_log_message(self, message):
+        self.log_console.append(message)
+        self.log_console.verticalScrollBar().setValue(self.log_console.verticalScrollBar().maximum())
+
+    def on_training_finished(self):
+        self.run_button.setEnabled(True)
+        self.run_button.setText("Start Training")
+        self.set_navigation_enabled.emit(True)
+        self.append_log_message("\n--- Process Finished ---")
 
     def set_setup_status(self, is_complete):
         self.is_setup_complete = is_complete
