@@ -7,15 +7,22 @@ from gui_app.logic import run_setup
 class SetupWorker(QThread):
     """Worker thread for running the setup process."""
     progress = pyqtSignal(str)
-    finished = pyqtSignal()
+    finished = pyqtSignal(bool)  # Emit True for success, False for failure
 
     def run(self):
-        for line in run_setup():
-            self.progress.emit(line)
-        self.finished.emit()
+        try:
+            for line in run_setup():
+                self.progress.emit(line)
+                if "[ERROR]" in line:
+                    raise RuntimeError("Setup script encountered an error.")
+            self.finished.emit(True) # Success
+        except Exception:
+            self.finished.emit(False) # Failure
 
 
 class SetupPage(QWidget):
+    setup_completed = pyqtSignal(bool)
+
     def __init__(self):
         super().__init__()
 
@@ -56,6 +63,10 @@ class SetupPage(QWidget):
         self.log_console.append(text.strip())
         self.log_console.verticalScrollBar().setValue(self.log_console.verticalScrollBar().maximum())
 
-    def setup_finished(self):
-        self.log_console.append("\nSetup process finished.")
+    def setup_finished(self, success):
+        if success:
+            self.log_console.append("\n[SUCCESS] Setup process finished successfully.")
+        else:
+            self.log_console.append("\n[FAILURE] Setup process failed. See logs for details.")
         self.run_button.setEnabled(True)
+        self.setup_completed.emit(success)

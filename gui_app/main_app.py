@@ -1,42 +1,22 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QLabel, QFrame
 from PyQt6.QtGui import QFont
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt
 
 from gui_app.setup_page import SetupPage
+from gui_app.data_collection_page import DataCollectionPage
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.is_setup_complete = False
 
         self.setWindowTitle("Hand Gesture Recognition System")
         self.setGeometry(100, 100, 1200, 800)
         self.setStyleSheet("""
-            QMainWindow {
-                background-color: #1e1e1e;
-            }
-            QPushButton {
-                background-color: #3e3e3e;
-                color: #f0f0f0;
-                border: 1px solid #555;
-                padding: 10px;
-                text-align: left;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #4e4e4e;
-            }
-            QPushButton:checked {
-                background-color: #007acc;
-                border-left: 3px solid #6ee2ff;
-            }
-            QLabel {
-                color: #f0f0f0;
-                font-size: 16px;
-            }
-            QFrame#sidebar {
-                background-color: #252526;
-            }
+            QMainWindow { background-color: #1e1e1e; }
+            QFrame#sidebar { background-color: #252526; }
+            QLabel { color: #f0f0f0; font-size: 16px; }
         """)
 
         main_widget = QWidget()
@@ -46,46 +26,82 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
 
         # --- Sidebar --- #
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(200)
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        sidebar_layout.setContentsMargins(0, 20, 0, 20)
-        sidebar_layout.setSpacing(5)
+        nav_panel = QFrame()
+        nav_panel.setObjectName("sidebar")
+        nav_panel.setFixedWidth(200)
+        nav_layout = QVBoxLayout(nav_panel)
+        nav_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        nav_layout.setContentsMargins(0, 20, 0, 20)
+        nav_layout.setSpacing(5)
 
-        # --- Content Area --- #
-        self.content_area = QStackedWidget()
-        main_layout.addWidget(sidebar)
-        main_layout.addWidget(self.content_area)
+        # --- Page Container --- #
+        self.page_container = QStackedWidget()
 
-        # --- Navigation Buttons and Pages --- #
-        self.nav_buttons = {}
-        pages = {
+        # --- Pages and Navigation --- #
+        self.pages = {
             "Setup": SetupPage(),
-            "Data Collection": QLabel("Data Collection Page - Coming Soon!"),
+            "Data Collection": DataCollectionPage(),
             "Training": QLabel("Training Page - Coming Soon!"),
             "Inference": QLabel("Inference Page - Coming Soon!")
         }
+        self.pages["Setup"].setup_completed.connect(self.on_setup_completed)
 
-        for name, page in pages.items():
-            # Center the placeholder text
+        self.nav_buttons = {}
+        for name, page in self.pages.items():
+            self.page_container.addWidget(page)
             if isinstance(page, QLabel):
                 page.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 page.setFont(QFont("Arial", 24))
 
             button = QPushButton(name)
+            button.setFont(QFont("Arial", 14))
+            button.setMinimumHeight(50)
+            button.setStyleSheet("""
+                QPushButton {
+                    color: #ccc;
+                    background-color: transparent;
+                    border: none;
+                    text-align: left;
+                    padding-left: 20px;
+                }
+                QPushButton:hover {
+                    background-color: #3a3a3a;
+                }
+                QPushButton[checked="true"] {
+                    background-color: #0078d4;
+                    color: white;
+                    border-left: 4px solid #91c9f7;
+                }
+            """)
             button.setCheckable(True)
-            button.clicked.connect(lambda checked, idx=self.content_area.count(): self.content_area.setCurrentIndex(idx))
-            sidebar_layout.addWidget(button)
-            self.content_area.addWidget(page)
+            button.clicked.connect(lambda checked, n=name: self.switch_page(n))
+            
+            if name != "Setup":
+                button.setEnabled(False)
+
+            nav_layout.addWidget(button)
             self.nav_buttons[name] = button
 
-        # Select the first button by default
-        self.nav_buttons["Setup"].setChecked(True)
+        main_layout.addWidget(nav_panel)
+        main_layout.addWidget(self.page_container)
+
+        self.switch_page("Setup")
+
+    def switch_page(self, page_name):
+        self.page_container.setCurrentWidget(self.pages[page_name])
+        for name, btn in self.nav_buttons.items():
+            btn.setChecked(name == page_name)
+
+    def on_setup_completed(self, success):
+        self.is_setup_complete = success
+        if success:
+            self.nav_buttons["Data Collection"].setEnabled(True)
+            # self.nav_buttons["Training"].setEnabled(True) # Will be enabled later
+            # self.nav_buttons["Inference"].setEnabled(True) # Will be enabled later
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
+
