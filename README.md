@@ -92,24 +92,25 @@ This will:
 
 ### 4. Run the End-to-End Simulation
 
-This step demonstrates the live data pipeline from the Python hand tracker to the C simulation. It requires two separate terminals.
+This step demonstrates the live inference pipeline from the Python hand tracker to the C simulation. It requires two separate terminals.
 
 **Terminal 1: Start the C Simulation Server**
 
-First, compile and run the C application. This will act as the server, waiting for the Python client to connect.
+First, compile and run the C application. This will act as a persistent server, waiting for the Python client to connect and performing inference on the incoming data.
 
 ```bash
 # Navigate to the simulation directory
 cd RA8D1_Simulation
 
-# Compile the C code
-gcc main.c -o simulation
+# Compile the C code, linking the ONNX Runtime library
+# (Note: The path to onnxruntime may vary depending on your installation)
+gcc main.c -o simulation -I/opt/homebrew/opt/onnxruntime/include -L/opt/homebrew/opt/onnxruntime/lib -lonnxruntime
 
 # Run the simulation server
 ./simulation
 ```
 
-The server will start and print `Server listening on port 65432`.
+The server will start and print `Waiting for a client connection...`.
 
 **Terminal 2: Start the Python Hand Tracker Client**
 
@@ -123,21 +124,4 @@ source Python_Hand_Tracker/venv_tracker/bin/activate
 python Python_Hand_Tracker/hand_tracker.py --mode inference
 ```
 
-Once connected, you will see the live camera feed. The C server terminal will print the stream of floating-point numbers representing your hand landmarks.
-gcc main.c -o simulation
-./simulation
-```
-
-**Terminal 2: Run the Python Hand Tracker**
-
-Activate the **tracker** environment and run the `hand_tracker.py` script in inference mode:
-
-```bash
-# Activate the tracker environment
-source Python_Hand_Tracker/venv_tracker/bin/activate
-
-# Run the script in inference mode
-python Python_Hand_Tracker/hand_tracker.py --mode inference
-```
-
-The Python script will stream hand landmark data to the C application, which will receive and process it, simulating the on-device workflow.
+Once connected, you will see the live camera feed. The C server terminal will now print the live gesture predictions (e.g., `Prediction: fist`) as it receives and analyzes the landmark data.
