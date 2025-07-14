@@ -32,96 +32,60 @@ The core idea is to train a base hand gesture recognition model, deploy it to a 
 └── explanation.md               # Detailed project plan and phases
 ```
 
-## Setup and Usage
+## Quick Start: Automated Workflow
 
-This project uses two separate Python virtual environments to manage conflicting dependencies between the hand tracker (`mediapipe`) and the model training (`tensorflow`).
+This project includes an automation script, `run.sh`, to simplify the setup and execution of all major tasks. This script handles environment activation, C code compilation, and running the correct Python scripts for each stage of the workflow.
 
-### 1. Environment Setup
+### 1. Initial Setup
 
-First, create both virtual environments using Python 3.11:
+Before running the script for the first time, you need to set up the Python virtual environments and install the required dependencies. This only needs to be done once.
 
 ```bash
-# Create the environment for the hand tracker
+# Create the virtual environments using Python 3.11
+# NOTE: Using a different version of Python may cause installation errors.
 python3.11 -m venv Python_Hand_Tracker/venv_tracker
-
-# Create the environment for model training
 python3.11 -m venv Python_Hand_Tracker/venv_training
-```
 
-Next, install the dependencies into their respective environments:
-
-```bash
-# Install tracker dependencies
+# Install dependencies
 ./Python_Hand_Tracker/venv_tracker/bin/pip install -r Python_Hand_Tracker/requirements_tracker.txt
-
-# Install training dependencies
 ./Python_Hand_Tracker/venv_training/bin/pip install -r Python_Hand_Tracker/requirements_training.txt
 ```
 
-### 2. Data Collection
+### 2. Using the `run.sh` Script
 
-To collect training data, activate the **tracker** environment and run the `hand_tracker.py` script in collection mode:
+After the initial setup, you can use the `run.sh` script with one of the following commands: `collect`, `train`, or `inference`.
 
-```bash
-# Activate the tracker environment
-source Python_Hand_Tracker/venv_tracker/bin/activate
+**A. Collect Data**
 
-# Run the script in data collection mode
-python Python_Hand_Tracker/hand_tracker.py --mode collect
-```
-
-The script will guide you through collecting samples for several gestures (fist, palm, pointing). Follow the on-screen prompts. The data will be saved automatically to the `models/data/` directory.
-
-### 3. Model Training
-
-Once you have collected data, activate the **training** environment and run the training script:
+To collect new training data, run:
 
 ```bash
-# Activate the training environment
-source Python_Hand_Tracker/venv_training/bin/activate
-
-# Run the script
-python Python_Hand_Tracker/train_model.py
+./run.sh collect
 ```
 
-This will:
-1.  Load the `.csv` data from the `models/data` directory.
-2.  Train a simple neural network on the data.
-3.  Save the trained model to `models/saved_model`.
-4.  Convert and save the final model to `models/model.onnx`.
+The script will automatically activate the correct environment and launch the data collection interface. Follow the on-screen prompts to record gestures. Data is appended to the existing `.csv` files in `models/data/`.
 
-### 4. Run the End-to-End Simulation
+**B. Train the Model**
 
-This step demonstrates the live inference pipeline from the Python hand tracker to the C simulation. It requires two separate terminals.
-
-**Terminal 1: Start the C Simulation Server**
-
-First, compile and run the C application. This will act as a persistent server, waiting for the Python client to connect and performing inference on the incoming data.
+After collecting data, train the model by running:
 
 ```bash
-# Navigate to the simulation directory
-cd RA8D1_Simulation
-
-# Compile the C code, linking the ONNX Runtime library
-# (Note: The path to onnxruntime may vary depending on your installation)
-gcc main.c -o simulation -I/opt/homebrew/opt/onnxruntime/include -L/opt/homebrew/opt/onnxruntime/lib -lonnxruntime
-
-# Run the simulation server
-./simulation
+./run.sh train
 ```
 
-The server will start and print `Waiting for a client connection...`.
+This will activate the training environment, run the training script, and save the updated model to `models/model.onnx`.
 
-**Terminal 2: Start the Python Hand Tracker Client**
+**C. Run Inference**
 
-In a new terminal, activate the **tracker** environment and run the hand tracker in inference mode. It will connect to the C server and begin streaming data.
+To run the full end-to-end simulation, use the following command:
 
 ```bash
-# Activate the tracker environment
-source Python_Hand_Tracker/venv_tracker/bin/activate
-
-# Run the hand tracker client
-python Python_Hand_Tracker/hand_tracker.py --mode inference
+./run.sh inference
 ```
 
-Once connected, you will see the live camera feed. The C server terminal will now print the live gesture predictions (e.g., `Prediction: fist`) as it receives and analyzes the landmark data.
+This command will:
+1.  Compile the C simulation code (if not already compiled).
+2.  Start the C simulation server in the background.
+3.  Launch the Python hand tracker, which will connect to the server and begin streaming data.
+
+The live camera feed will appear, and the terminal will show the real-time gesture predictions from the C simulation. To stop the simulation, simply close the camera window or press `Ctrl+C` in the terminal.

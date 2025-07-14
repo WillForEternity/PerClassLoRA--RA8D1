@@ -34,39 +34,39 @@ def get_landmark_data(hand_landmarks):
 def run_inference_mode():
     """Connects to the C simulation server and streams hand landmark data."""
     print("--- Starting INFERENCE mode ---")
-    
-    # 1. Connect to server
-    print("Attempting to connect to C server...")
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    retries = 0
-    while True:
-        try:
-            client_socket.connect((HOST, PORT))
-            print(f"[SUCCESS] Connected to C server at {HOST}:{PORT}")
-            break
-        except ConnectionRefusedError:
-            retries += 1
-            if retries >= 10:
-                print("[FAILURE] Connection failed after 10 retries. Is the C simulation running?")
-                return
-            print(f"Connection refused. Retrying in 2 seconds... ({retries}/10)")
-            time.sleep(2)
-
-    # 2. Initialize Camera
-    print("Initializing camera...")
     cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("[FAILURE] Cannot open camera. Is it connected or used by another application?")
-        client_socket.close()
-        return
-    print("[SUCCESS] Camera initialized.")
 
-    # 3. Start main loop
-    print("Starting main inference loop...")
     try:
+        # 1. Connect to server
+        print("Attempting to connect to C server...")
+        retries = 0
+        while True:
+            try:
+                client_socket.connect((HOST, PORT))
+                print(f"[SUCCESS] Connected to C server at {HOST}:{PORT}")
+                break
+            except ConnectionRefusedError:
+                retries += 1
+                if retries >= 10:
+                    print("[FAILURE] Connection failed after 10 retries. Is the C simulation running?")
+                    return
+                print(f"Connection refused. Retrying in 2 seconds... ({retries}/10)")
+                time.sleep(2)
+
+        # 2. Initialize Camera
+        print("Initializing camera...")
+        if not cap.isOpened():
+            print("[FAILURE] Cannot open camera. Is it connected or used by another application?")
+            return
+        print("[SUCCESS] Camera initialized.")
+
+        # 3. Start main loop
+        print("Starting main inference loop...")
         while cap.isOpened():
             success, image = cap.read()
-            if not success: continue
+            if not success:
+                continue
 
             image = cv2.flip(image, 1)
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -84,13 +84,19 @@ def run_inference_mode():
                         return
 
             cv2.imshow('Inference Mode', image)
-            if cv2.waitKey(5) & 0xFF == 27: break
-            time.sleep(0.05) # Add a small delay to prevent overwhelming the C client
+            if cv2.waitKey(5) & 0xFF == 27:  # Press 'ESC' to exit
+                break
+            time.sleep(0.05)  # Prevent overwhelming the C client
+
+    except KeyboardInterrupt:
+        print("\nInference stopped by user.")
     finally:
         print("Closing connection and camera.")
-        cap.release()
+        if cap.isOpened():
+            cap.release()
         client_socket.close()
         cv2.destroyAllWindows()
+        print("Cleanup complete.")
 
 def run_collection_mode():
     """Collects training data for specified hand gestures."""
@@ -132,7 +138,7 @@ def run_collection_mode():
 
         # Save the collected data to a CSV file
         file_path = os.path.join(DATA_DIR, f"{gesture}.csv")
-        with open(file_path, 'w', newline='') as f:
+        with open(file_path, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerows(collected_data)
         print(f"Saved {len(collected_data)} samples to {file_path}")

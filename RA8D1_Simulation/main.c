@@ -63,8 +63,8 @@ void run_inference() {
     OrtValue* input_tensor = NULL;
     CheckStatus(g_ort->CreateTensorWithDataAsOrtValue(memory_info, &g_hand_landmark_data, sizeof(g_hand_landmark_data), input_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_tensor));
 
-    const char* input_names[] = {"keras_tensor"};
-    const char* output_names[] = {"output_0"};
+    const char* input_names[] = {"input"};
+    const char* output_names[] = {"output"};
     OrtValue* output_tensor = NULL;
 
     CheckStatus(g_ort->Run(g_session, NULL, input_names, (const OrtValue* const*)&input_tensor, 1, output_names, 1, &output_tensor));

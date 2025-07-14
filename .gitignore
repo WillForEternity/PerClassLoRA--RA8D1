@@ -2,16 +2,18 @@
 __pycache__/
 *.pyc
 
-# Virtual Environment
-venv/
-venv_tracker/
-venv_training/
+# Virtual Environments
+Python_Hand_Tracker/venv_training/
+Python_Hand_Tracker/venv_tracker/
 
-# Compiled files
+# Compiled C files
 *.o
 *.out
-ra8d1_sim
-simulation
+RA8D1_Simulation/ra8d1_sim
+
+# Generated Models (but not the data)
+models/model.onnx
+models/saved_model/
 
 # OS-specific
 .DS_Store

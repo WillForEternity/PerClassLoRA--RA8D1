@@ -2,7 +2,6 @@ absl-py==2.3.1
 astunparse==1.6.3
 certifi==2025.7.9
 charset-normalizer==3.4.2
-flatbuffers==25.2.10
 gast==0.6.0
 google-pasta==0.2.0
 grpcio==1.73.1
@@ -15,7 +14,7 @@ Markdown==3.8.2
 markdown-it-py==3.0.0
 MarkupSafe==3.0.2
 mdurl==0.1.2
-ml_dtypes==0.5.1
+ml_dtypes==0.3.2
 namex==0.1.0
 numpy==1.26.4
 onnx==1.17.0
@@ -32,11 +31,11 @@ rich==14.0.0
 scikit-learn==1.7.0
 scipy==1.16.0
 six==1.17.0
-tensorboard==2.19.0
+tensorboard==2.16.0
 tensorboard-data-server==0.7.2
-tensorflow==2.19.0
+tensorflow==2.16.1
 tensorflow-io-gcs-filesystem==0.37.1
-tensorflow-metal==1.2.0
+tensorflow-metal==1.1.0
 termcolor==3.1.0
 tf2onnx==1.16.1
 threadpoolctl==3.6.0

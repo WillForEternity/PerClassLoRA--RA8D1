@@ -3,9 +3,11 @@ import pandas as pd
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.models import Model, Sequential
+from tensorflow.keras.layers import Dense, Dropout, Input
 import os
+import tf2onnx
+import onnx
 
 # --- Constants ---
 # Get the absolute path of the script's directory
@@ -50,13 +52,14 @@ def load_data():
 
 # --- 2. Build the Model ---
 def build_model(num_classes):
-    model = Sequential([
-        Dense(64, activation='relu', input_shape=INPUT_SHAPE),
-        Dropout(0.5),
-        Dense(32, activation='relu'),
-        Dropout(0.5),
-        tf.keras.layers.Dense(num_classes, activation='softmax', name='output')
-    ])
+    inputs = Input(shape=INPUT_SHAPE, name='input')
+    x = Dense(64, activation='relu')(inputs)
+    x = Dropout(0.5)(x)
+    x = Dense(32, activation='relu')(x)
+    x = Dropout(0.5)(x)
+    outputs = Dense(num_classes, activation='softmax', name='output')(x)
+    model = Model(inputs=inputs, outputs=outputs)
+
     model.compile(optimizer='adam',
                   loss='sparse_categorical_crossentropy',
                   metrics=['accuracy'])
@@ -100,5 +103,12 @@ if __name__ == '__main__':
     # 4. Save Model
     print(f"\nSaving model to {os.path.abspath(SAVED_MODEL_PATH)}...")
     model.export(SAVED_MODEL_PATH)
-    print("\nModel training complete!")
     print(f"The model is saved at: {os.path.abspath(SAVED_MODEL_PATH)}")
+
+    # 5. Convert to ONNX
+    print(f"\nConverting model to ONNX and saving to {os.path.abspath(ONNX_MODEL_PATH)}...")
+    input_signature = [tf.TensorSpec(model.input_shape, tf.float32, name='input')]
+    onnx_model, _ = tf2onnx.convert.from_keras(model, input_signature=input_signature, opset=13)
+    onnx.save(onnx_model, ONNX_MODEL_PATH)
+    print("Model converted to ONNX successfully.")
+    print("\nModel training complete!")
