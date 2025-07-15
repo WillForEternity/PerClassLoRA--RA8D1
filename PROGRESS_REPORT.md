@@ -1,42 +1,39 @@
-# Project Progress Report: Per-Class LoRA on RA8D1
+# Final Project Report: Hand Gesture Recognition GUI
 
-## Project Goal
+## Project Status: Complete
 
-To design and simulate a complete adaptive machine learning workflow on a resource-constrained microcontroller (Renesas RA8D1). This involves offline training of a base model, deployment to a simulated MCU, and on-device adaptation using Per-Class LoRA.
-
----
-
-## Current Status: Phase 3 Complete
-
-We have successfully integrated the ONNX model into the C simulation and validated the full end-to-end inference pipeline. The system can now perform live gesture recognition by streaming data from the Python hand tracker to the C server, which runs the model and prints real-time predictions. This completes the core project infrastructure.
-
-### Key Accomplishments
-
-- **✅ Phase 1: Environment Setup & Data Collection (Complete)**
-  - A Python-based hand tracker using `MediaPipe` was developed and used to collect training data.
-
-- **✅ Phase 2: Offline Model Training & Conversion (Complete)**
-  - **Resolved Dependency Conflicts:** Established a stable two-environment setup (Python 3.11) for tracking and training.
-  - **Successful Model Training & Export:** Trained a neural network and exported it to the ONNX format.
-
-- **✅ Phase 3: Simulation and Inference (Complete)**
-  - **Established Robust C/Python Data Pipeline:** Built a resilient TCP client-server architecture for data streaming.
-  - **Solved Inference Mismatch:** Diagnosed and fixed a critical bug where the model only predicted one class. This was resolved by retraining the model without feature scaling to match the raw data format used during inference.
-  - **Debugged ONNX Runtime Integration:** Fixed a final crash by correcting the model's input tensor name (`keras_tensor:0` → `keras_tensor`) in the C code.
-  - **Validated End-to-End System:** Confirmed that the C simulation correctly receives live data and produces varied, accurate gesture predictions.
-
-### Project Unblocked
-
-The successful end-to-end inference pipeline means the project is fully unblocked and ready for the final and most critical stage of development.
+This project has successfully concluded with the development of a full-featured GUI application for hand gesture recognition. The initial goal of creating a C-based simulation for an MCU evolved into building a more practical and user-friendly Python application that covers the entire machine learning workflow.
 
 ---
 
-## Next Steps: Implement Per-Class LoRA
+## Summary of Accomplishments
 
-With the base model and inference pipeline working, the next step is to implement the core concept of the project: on-device adaptation.
+The project delivered a robust, end-to-end solution for building and testing a custom gesture recognition model. The final application provides a seamless experience, abstracting away the complexities of environment management and command-line tools.
 
-- **Implement LoRA Matrix Operations:** Update the C code to simulate the application of LoRA matrices to the model's weights during inference. This will involve loading and applying the low-rank adaptation matrices.
+### Key Features Delivered:
 
-- **Develop Adaptation Workflow:** Create a mechanism to simulate the "on-device" training of these LoRA matrices for a new, unseen gesture.
+- **✅ Unified GUI Application:** A single, intuitive interface for the entire ML pipeline, built with PyQt6.
 
-- **Evaluate Performance:** Measure the effectiveness of the adaptation and analyze the resource constraints (memory, computation) to ensure it's feasible for the target RA8D1 MCU.
+- **✅ Automated Environment Setup:** The application guides the user through a one-time setup, verifying Python environments and dependencies to ensure the system runs correctly.
+
+- **✅ Integrated Data Collection:** A dedicated page allows users to easily record new gesture data using their camera, with clear prompts and visual feedback.
+
+- **✅ Live-Updating Training Page:** The model training process is managed by the application and features a live-updating Matplotlib graph, providing real-time feedback on the model's accuracy and validation accuracy.
+
+- **✅ Real-Time Inference Engine:** A final inference page uses the trained ONNX model to provide live gesture predictions from the camera feed, completing the "data-to-deployment" loop.
+
+- **✅ Responsive and Stable Architecture:** By leveraging `QThread` for all long-running processes (data collection, training, inference), the GUI remains responsive and provides a smooth user experience.
+
+- **✅ Dependency Conflict Resolution:** A stable two-environment setup (`venv_gui`, `venv_training`) was established to handle conflicting package requirements, particularly for TensorFlow on Apple Silicon.
+
+### Evolution from C-Simulation to Python GUI
+
+The project's direction shifted from a low-level C simulation to a high-level Python application. This decision was made to prioritize usability, development speed, and the creation of a more practical tool. While the concept of on-device learning with LoRA was part of the initial plan, the final implementation focuses on providing a solid foundation for the core ML workflow: data collection, training, and inference.
+
+This polished, end-to-end application serves as a powerful and accessible tool for anyone looking to create a custom gesture recognition model.
+
+---
+
+## Final State
+
+The project is considered feature-complete. The application is stable, the documentation is updated, and the repository contains all the necessary code and instructions to run the tool successfully.

@@ -1,60 +1,30 @@
 # Hand Gesture Recognition GUI
 
-This project provides a complete, user-friendly graphical interface (GUI) for building and testing a hand gesture recognition model. The application guides the user through the entire machine learning pipeline, from initial setup and data collection to model training and real-time inference.
+This project provides a complete, user-friendly graphical interface (GUI) for building, training, and deploying a hand gesture recognition model. The application guides the user through the entire machine learning workflow, from setting up the environment to real-time inference.
 
-While originally conceived to simulate on-device learning for a Renesas RA8D1 MCU, the project has evolved into a powerful, general-purpose tool for creating and experimenting with custom gesture recognition models.
+ <!-- Replace with a real screenshot -->
 
 ## Features
 
-- **All-in-One Interface**: A single application manages the entire workflow, eliminating the need for command-line scripts.
-- **Guided Setup**: An initial setup page verifies that all required dependencies are installed correctly.
-- **Live Data Collection**: Collect training data for custom gestures using a live camera feed and progress indicators.
-- **Real-Time Training Graph**: Monitor model performance during training with a live-updating graph of accuracy and validation accuracy.
-- **Real-Time Inference**: Test the trained model with a live camera feed that displays the predicted gesture and confidence score in real-time.
-- **Responsive UI**: Heavy tasks like training and inference run in separate threads to ensure the GUI remains responsive.
+- **End-to-End Workflow:** A single application for data collection, model training, and live inference.
+- **User-Friendly Interface:** Built with PyQt6 for a clean and intuitive user experience.
+- **Automated Setup:** The application checks for necessary dependencies and environments, guiding the user through the setup process.
+- **Live Camera Feed:** Visual feedback during data collection and inference.
+- **Real-Time Training Graph:** Monitor model performance with a live-updating graph during training.
+- **Isolated Environments:** Uses separate Python virtual environments for the GUI, data collection, and training to prevent dependency conflicts.
 
-## File Structure
-
-```
-.
-├── gui_app/                     # Source code for the PyQt6 GUI application
-│   ├── venv_gui/                # Virtual environment for the GUI
-│   ├── main_app.py              # Main entry point for the application
-│   ├── setup_page.py            # UI and logic for the setup page
-│   ├── data_collection_page.py  # UI and logic for data collection
-│   ├── training_page.py         # UI and logic for model training
-│   ├── inference_page.py        # UI and logic for real-time inference
-│   ├── logic.py                 # Core logic for hand tracking and prediction
-│   └── requirements_gui.txt     # Pip requirements for the GUI
-│
-├── Python_Hand_Tracker/         # Scripts and environment for model training
-│   ├── venv_training/           # Virtual environment for model training
-│   ├── train_model.py           # Script to train the neural network and export to ONNX
-│   └── requirements_training.txt# Pip requirements for model training
-│
-├── models/                      # Trained models and training data
-│   ├── data/                    # CSV files for hand landmark data
-│   ├── saved_model/             # TensorFlow SavedModel format
-│   └── model.onnx               # Final model in ONNX format
-│
-├── .gitignore
-└── README.md
-```
-
-## Quick Start
-
-Follow these steps to set up and run the application.
+## Getting Started
 
 ### 1. Prerequisites
 
 - Python 3.11
 
-### 2. Setup
+### 2. Initial Setup
 
-First, create the Python virtual environments and install the required dependencies. This only needs to be done once.
+Before launching the application for the first time, you need to create the required virtual environments and install the dependencies.
 
 ```bash
-# Create the virtual environments
+# Create the virtual environments for the GUI and training
 # NOTE: Using a different version of Python may cause installation errors.
 python3.11 -m venv gui_app/venv_gui
 python3.11 -m venv Python_Hand_Tracker/venv_training
@@ -64,7 +34,7 @@ source gui_app/venv_gui/bin/activate
 pip install -r gui_app/requirements_gui.txt
 deactivate
 
-# Install dependencies for model training
+# Install dependencies for training
 source Python_Hand_Tracker/venv_training/bin/activate
 pip install -r Python_Hand_Tracker/requirements_training.txt
 deactivate
@@ -72,20 +42,46 @@ deactivate
 
 ### 3. Running the Application
 
-To launch the GUI, run the following command from the project root directory:
+Once the setup is complete, launch the GUI application:
 
 ```bash
-gui_app/venv_gui/bin/python -m gui_app.main_app
+# Activate the GUI environment
+source gui_app/venv_gui/bin/activate
+
+# Run the main application
+python -m gui_app.main_app
 ```
 
-## How to Use the Application
+## Application Workflow
 
-The application will guide you through a four-step process:
+The GUI is organized into four distinct pages:
 
-1.  **Setup**: The initial page checks if all dependencies for both the GUI and training environments are correctly installed. Once all checks pass, you can proceed.
+1.  **Setup:** Automatically checks if the required virtual environments and dependencies are correctly installed. It provides instructions if any part of the setup is missing.
+2.  **Data Collection:** Use your camera to record hand gestures. Select a gesture to record, and the application will capture hand landmark data and save it to a CSV file.
+3.  **Training:** Train the neural network on the data you collected. The application runs the training script in an isolated environment and displays a live graph of the model's accuracy.
+4.  **Inference:** Test your trained model in real-time. The application displays a live camera feed and uses the model to predict and display your hand gestures.
 
-2.  **Data Collection**: Use this page to record examples for your hand gestures. Select a gesture, specify the number of samples to collect, and press "Start Collecting." Perform the gesture in front of your camera until the progress bar is full.
+## File Structure
 
-3.  **Training**: On this page, you can start the model training process. The application will use the data you collected to train a neural network. You can monitor the progress in the log window and watch the training/validation accuracy improve in real-time on the graph.
-
-4.  **Inference**: After the model is trained, this page allows you to test it. A live camera feed will be displayed, and the model will predict your hand gesture in real-time, showing the result and its confidence level.
+```
+.
+├── gui_app/
+│   ├── venv_gui/              # Virtual environment for the GUI
+│   ├── main_app.py            # Main entry point for the application
+│   ├── logic.py               # Core logic for HandTracking and Prediction
+│   ├── setup_page.py          # UI and logic for the Setup page
+│   ├── data_collection_page.py# UI and logic for Data Collection page
+│   ├── training_page.py       # UI and logic for the Training page
+│   ├── inference_page.py      # UI and logic for the Inference page
+│   └── requirements_gui.txt   # Pip requirements for the GUI
+│
+├── Python_Hand_Tracker/
+│   ├── venv_training/         # Virtual environment for model training
+│   ├── train_model.py         # Script to train the model and export to ONNX
+│   └── requirements_training.txt # Pip requirements for training
+│
+└── models/
+    ├── data/                  # CSV files with hand landmark data
+    ├── saved_model/           # TensorFlow SavedModel format
+    └── model.onnx             # Final model in ONNX format
+```

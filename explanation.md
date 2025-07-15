@@ -1,78 +1,54 @@
-Project Plan: RA8D1-Constrained Simulation on macOS
-Mission: To build and validate the entire adaptive learning workflow on a macOS machine, while strictly adhering to the memory and computational constraints of the Renesas RA8D1 microcontroller. This simulation will replace the real IMU sensor with a data stream from a hand position recognizer but will otherwise be functionally identical to the final embedded system.
+# Project Explanation: From Simulation to GUI
 
-Core Principle: "Simulate, Don't Assume." We will not use any of the Mac's convenient, high-level libraries for the core logic. Every function that will run on the MCU will be written in pure C/C++, and we will manually enforce memory limits.
+This document outlines the evolution of the Hand Gesture Recognition project, from its initial concept as a command-line-based simulation to its final implementation as a full-featured graphical user interface (GUI) application.
 
-Key Technologies:
+## Initial Goal: C-Based MCU Simulation
 
-Language: C/C++ (compiled with gcc or clang).
-Data Source: A Python script running a hand recognizer (e.g., using MediaPipe) that sends data over a local socket.
-ML Model Format: ONNX
-ML Runtime: The same C/C++ ONNX inference runtime you'll use on the MCU.
-Key Constraint: All code for the core simulation will be written as if it were for the MCU—no dynamic memory allocation (malloc/new), static buffers, and a strict memory budget.
-Four-Phase Implementation Plan for macOS Simulation
-Phase 1: The "Fake MCU" and Environment Setup (Week 1)
-Goal: Create a C/C++ project that serves as the "firmware" and establish communication with a data source.
-Tasks:
-Project Structure: Create a new folder on your Mac. Inside, create a main.c file and a Makefile. This will be your primary development environment.
-Define Constraints: In a mcu_constraints.h header file, define the RA8D1's memory limits. This serves as a constant reminder and can be used for runtime checks.
-Generated c
-#define RA8D1_SRAM_BUDGET_KB 1024
-#define RA8D1_FLASH_BUDGET_KB 2048
-// Our application's self-imposed SRAM limit
-#define APP_SRAM_LIMIT (256 * 1024) // 256 KB
-Use code with caution.
-C
-Data Source (Python): Create a separate Python script. Use the MediaPipe library to get hand landmark data from your webcam. Write code to stream the X, Y, Z coordinates of a few key landmarks (e.g., fingertips, wrist) over a local TCP or UDP socket. This script mimics the IMU.
-Data Receiver (C++): In your C++ project, write the socket client code to receive the hand landmark data from your Python script. This replaces the I2C driver on the MCU. The received data should be placed into a statically allocated float buffer, just as it would be in hal_entry.c.
-Phase 2: Offline Model Training & ONNX Integration (Week 2)
-Goal: Train a classifier and integrate the ONNX runtime into your C++ simulation.
-Tasks:
-Data Collection: Run your Python and C++ apps simultaneously. In Python, perform a few distinct hand gestures (e.g., "flat palm," "fist," "pointing") and save the streamed landmark data to labeled CSV files.
-Model Training (Python): In a Jupyter Notebook or Python script, train a simple 1D CNN or a Fully Connected Network on the collected gesture data.
-Export to ONNX: Export the trained model to model.onnx.
-Integrate ONNX Runtime (C++): Compile the C/C++ ONNX runtime source files into your project. Convert your model.onnx file into a model.h C header file.
-Static Memory Allocation: In your main.c, statically declare all memory buffers needed by the ONNX model (input, output, and the large activation "arena" buffer).
-Generated c
-// In main.c
-#define MODEL_INPUT_SIZE 128*3
-#define MODEL_ARENA_SIZE 50*1024 // 50KB, from model analysis
+The project began with the ambitious goal of simulating a complete, adaptive machine learning workflow on a resource-constrained microcontroller (the Renesas RA8D1). The plan was to:
 
-static float g_model_input[MODEL_INPUT_SIZE];
-static float g_model_output[NUM_CLASSES];
-static uint8_t g_model_arena[MODEL_ARENA_SIZE]; // Large working buffer
-Use code with caution.
-C
-End-to-End Inference: Connect the pieces. The main loop should now:
-Receive data from the Python socket into g_model_input.
-Call the ONNX runtime's run() function.
-Print the classification result from g_model_output.
-At this point, you have simulated the MVP.
-Phase 3: Simulating On-Device Learning (Week 3)
-Goal: Implement the LoRA update mechanism within the hardware constraints.
-Tasks:
-LoRA Math in C: Write the pure C functions for forward_lora, backward_lora, and update_weights. These should use only basic math and operate on statically allocated arrays for the LoRA matrices.
-State Machine: Implement a simple state machine in your main.c's while loop: STATE_INFER, STATE_WAIT_FOR_LEARN_CMD, STATE_COLLECT_DATA, STATE_TRAIN.
-Simulated User Input: Implement a simple command-line interface. For example, if you type teach_new_gesture into the terminal running your C++ app, it will switch to the learning state.
-Training Loop:
-When the "teach" command is received, the app collects the next full buffer of data from the hand-tracker.
-It then performs a forward pass, calculates the loss, and calls your C-based LoRA backward/update functions.
-You must manually verify that the total memory used by the model buffers, LoRA matrices, and gradient buffers does not exceed your APP_SRAM_LIMIT.
-Phase 4: Validation and Analysis (Week 4)
-Goal: Prove the concept works and analyze its feasibility for the real hardware.
-Tasks:
-Demonstration: Create a screen recording showing the full workflow:
-The system correctly classifies known gestures.
-It fails to classify a new, untrained gesture (e.g., a "thumbs up").
-You issue the "teach" command and perform the new gesture.
-The system now correctly classifies the "thumbs up" gesture.
-Memory Audit: At the end of your main function, print a "memory report." Manually sum the sizeof() for every static array you declared to show the total simulated SRAM usage. Compare this against APP_SRAM_LIMIT.
-Code Portability Check: Review your C++ code. Confirm that it contains no OS-specific calls (except for the socket code, which is clearly marked as a substitute for the I2C driver), no dynamic memory allocation, and no standard library features that wouldn't be available in the Renesas FSP.
-Final Deliverable for this POC
-A single, well-organized Git repository containing:
+1.  **Develop in C:** Write all core logic in C to mirror the embedded environment.
+2.  **Simulate Data Input:** Use a Python script with `MediaPipe` to stream hand landmark data over a TCP socket to the C application.
+3.  **Train Offline:** Train a model in Python and export it to ONNX.
+4.  **Run Inference in C:** Use a C-based ONNX runtime to perform inference on the live data stream.
+5.  **Simulate On-Device Learning:** Implement a lightweight adaptation technique (like Per-Class LoRA) in C.
 
-The Python_Hand_Tracker folder.
-The RA8D1_Simulation folder with your main.c, Makefile, and all C/C++ source code.
-A models folder with your data collection and training notebooks/scripts.
-A README.md file that clearly explains how to build and run the simulation and includes your final memory audit report.
+This approach, while technically rigorous, presented significant challenges in usability and development speed. The workflow was fragmented across multiple terminals and required manual coordination between the Python data source and the C simulation.
+
+## Evolution: The Shift to a Python GUI
+
+To create a more integrated and user-friendly experience, the project pivoted from a C-based simulation to a Python-native GUI application. This shift prioritized ease of use and rapid development while still demonstrating the core machine learning workflow.
+
+The final application is a self-contained tool that guides the user through every step of the process.
+
+### Architectural Design
+
+The final architecture is built around a central PyQt6 GUI application that manages the entire workflow. Key design decisions include:
+
+- **Modular, Page-Based UI:** The application is divided into four pages (`Setup`, `Data Collection`, `Training`, `Inference`), each handling a specific part of the workflow. This makes the application easy to navigate and understand.
+
+- **Isolated Python Environments:** To avoid complex dependency conflicts (especially with TensorFlow on Apple Silicon), the application uses two separate virtual environments:
+    - `venv_gui`: A lightweight environment for the PyQt6 GUI and its dependencies.
+    - `venv_training`: A dedicated environment with specific versions of TensorFlow, tf2onnx, and other libraries required for model training.
+
+- **Asynchronous Operations with QThread:** Long-running tasks like data collection, training, and inference are offloaded to separate `QThread` workers. This ensures the GUI remains responsive and never freezes, providing a smooth user experience.
+
+- **Live Feedback Mechanisms:**
+    - **Training:** The training script uses a `CSVLogger` callback to write metrics to a file after each epoch. The GUI then reads this file on a timer to update a Matplotlib graph in real-time.
+    - **Inference:** The inference worker captures camera frames, runs them through the hand tracker and ONNX model, and emits signals to the main thread to update the video feed and prediction labels.
+
+### Core Components
+
+- **`main_app.py`:** The entry point of the application. It sets up the main window, manages the navigation between pages, and connects signals and slots.
+
+- **`logic.py`:** Contains the core, non-UI logic:
+    - `HandTracker`: A wrapper around `MediaPipe` to process camera frames and extract hand landmarks.
+    - `GesturePredictor`: A class that loads the trained `model.onnx` file and uses `onnxruntime` to run predictions.
+
+- **Page Modules (`*_page.py`):** Each page is a self-contained module with its own UI layout and worker thread for handling its specific task. This modular design makes the codebase clean and easy to maintain.
+
+- **`train_model.py`:** The script responsible for loading the collected CSV data, building and training a TensorFlow model, and exporting it to the ONNX format for inference.
+
+## Conclusion
+
+By transitioning from a complex, multi-language simulation to a unified Python GUI, the project successfully delivered a robust and user-friendly tool for hand gesture recognition. It provides a complete, end-to-end workflow that is accessible to a broader audience while still demonstrating the key principles of a practical machine learning pipeline.
 
