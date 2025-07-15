@@ -5,6 +5,8 @@ import cv2
 import mediapipe as mp
 import csv
 import time
+import numpy as np
+import onnxruntime as ort
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 TRACKER_VENV = os.path.join(PROJECT_ROOT, "Python_Hand_Tracker", "venv_tracker")
@@ -121,4 +123,33 @@ class HandTracker:
             writer = csv.writer(f)
             writer.writerows(data)
         return len(data)
+
+
+# --- Gesture Prediction ---
+
+class GesturePredictor:
+    """Handles loading the ONNX model and running inference."""
+    def __init__(self, model_path):
+        self.session = ort.InferenceSession(model_path)
+        self.input_name = self.session.get_inputs()[0].name
+        self.output_name = self.session.get_outputs()[0].name
+        self.classes = ['fist', 'palm', 'pointing'] # Should match training
+
+    def predict(self, landmark_data):
+        """
+        Predicts the gesture from landmark data.
+        Returns the predicted gesture label and the confidence score.
+        """
+        # Model expects a batch, so we reshape
+        input_data = np.array(landmark_data, dtype=np.float32).reshape(1, -1)
+        
+        # Run inference
+        result = self.session.run([self.output_name], {self.input_name: input_data})[0]
+        
+        # Get prediction and confidence
+        prediction_index = np.argmax(result)
+        confidence = result[0][prediction_index]
+        predicted_gesture = self.classes[prediction_index]
+        
+        return predicted_gesture, confidence
 

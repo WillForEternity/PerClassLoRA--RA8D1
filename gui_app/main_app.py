@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt
 from gui_app.setup_page import SetupPage
 from gui_app.data_collection_page import DataCollectionPage
 from gui_app.training_page import TrainingPage
+from gui_app.inference_page import InferencePage
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -60,7 +61,7 @@ class MainWindow(QMainWindow):
             "Setup": SetupPage(),
             "Data Collection": DataCollectionPage(),
             "Training": TrainingPage(),
-            "Inference": QLabel("Inference Page - Coming Soon!")
+            "Inference": InferencePage()
         }
         for name, page in self.pages.items():
             if isinstance(page, QLabel):
@@ -70,6 +71,7 @@ class MainWindow(QMainWindow):
         self.pages["Setup"].setup_completed.connect(self.on_setup_completed)
         self.pages["Data Collection"].set_navigation_enabled.connect(self.set_navigation_enabled)
         self.pages["Training"].set_navigation_enabled.connect(self.set_navigation_enabled)
+        self.pages["Inference"].set_navigation_enabled.connect(self.set_navigation_enabled)
 
         self.nav_button_group = QButtonGroup(self)
         self.nav_button_group.setExclusive(True)
