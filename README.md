@@ -1,91 +1,91 @@
-# Per-Class LoRA on RA8D1 - Adaptive Learning Simulation
+# Hand Gesture Recognition GUI
 
-This project simulates an adaptive machine learning workflow for a resource-constrained microcontroller, the Renesas RA8D1. It demonstrates a complete pipeline from data collection and model training to deployment and simulated on-device learning.
+This project provides a complete, user-friendly graphical interface (GUI) for building and testing a hand gesture recognition model. The application guides the user through the entire machine learning pipeline, from initial setup and data collection to model training and real-time inference.
 
-The core idea is to train a base hand gesture recognition model, deploy it to a simulated MCU environment, and then use a lightweight technique like Per-Class LoRA (Low-Rank Adaptation) to adapt the model to new, user-specific gestures without requiring a full retrain.
+While originally conceived to simulate on-device learning for a Renesas RA8D1 MCU, the project has evolved into a powerful, general-purpose tool for creating and experimenting with custom gesture recognition models.
+
+## Features
+
+- **All-in-One Interface**: A single application manages the entire workflow, eliminating the need for command-line scripts.
+- **Guided Setup**: An initial setup page verifies that all required dependencies are installed correctly.
+- **Live Data Collection**: Collect training data for custom gestures using a live camera feed and progress indicators.
+- **Real-Time Training Graph**: Monitor model performance during training with a live-updating graph of accuracy and validation accuracy.
+- **Real-Time Inference**: Test the trained model with a live camera feed that displays the predicted gesture and confidence score in real-time.
+- **Responsive UI**: Heavy tasks like training and inference run in separate threads to ensure the GUI remains responsive.
 
 ## File Structure
 
 ```
 .
-├── Python_Hand_Tracker/         # Main Python scripts and virtual environments
-│   ├── venv_tracker/              # Virtual environment for the hand tracker
-│   ├── venv_training/             # Virtual environment for model training
-│   ├── hand_tracker.py          # Runs the MediaPipe hand tracker for inference or data collection
-│   ├── requirements_tracker.txt # Pip requirements for the hand tracker (mediapipe, opencv)
-│   ├── requirements_training.txt# Pip requirements for model training (tensorflow, tf2onnx)
-│   └── train_model.py           # Script to train the neural network and export to ONNX
+├── gui_app/                     # Source code for the PyQt6 GUI application
+│   ├── venv_gui/                # Virtual environment for the GUI
+│   ├── main_app.py              # Main entry point for the application
+│   ├── setup_page.py            # UI and logic for the setup page
+│   ├── data_collection_page.py  # UI and logic for data collection
+│   ├── training_page.py         # UI and logic for model training
+│   ├── inference_page.py        # UI and logic for real-time inference
+│   ├── logic.py                 # Core logic for hand tracking and prediction
+│   └── requirements_gui.txt     # Pip requirements for the GUI
 │
-├── RA8D1_Simulation/            # C code simulating the MCU application
-│   ├── main.c                   # Main application logic for the simulated MCU
-│   └── mcu_constraints.h        # Defines memory constraints for the RA8D1
+├── Python_Hand_Tracker/         # Scripts and environment for model training
+│   ├── venv_training/           # Virtual environment for model training
+│   ├── train_model.py           # Script to train the neural network and export to ONNX
+│   └── requirements_training.txt# Pip requirements for model training
 │
 ├── models/                      # Trained models and training data
-│   ├── data/                    # CSV files containing collected hand landmark data
-│   │   ├── fist.csv
-│   │   ├── palm.csv
-│   │   └── pointing.csv
-│   ├── saved_model/             # TensorFlow SavedModel format of the trained model
-│   └── model.onnx               # Final model in ONNX format for cross-platform use
+│   ├── data/                    # CSV files for hand landmark data
+│   ├── saved_model/             # TensorFlow SavedModel format
+│   └── model.onnx               # Final model in ONNX format
 │
-├── .gitignore                   # Git ignore file
-└── explanation.md               # Detailed project plan and phases
+├── .gitignore
+└── README.md
 ```
 
-## Quick Start: Automated Workflow
+## Quick Start
 
-This project includes an automation script, `run.sh`, to simplify the setup and execution of all major tasks. This script handles environment activation, C code compilation, and running the correct Python scripts for each stage of the workflow.
+Follow these steps to set up and run the application.
 
-### 1. Initial Setup
+### 1. Prerequisites
 
-Before running the script for the first time, you need to set up the Python virtual environments and install the required dependencies. This only needs to be done once.
+- Python 3.11
+
+### 2. Setup
+
+First, create the Python virtual environments and install the required dependencies. This only needs to be done once.
 
 ```bash
-# Create the virtual environments using Python 3.11
+# Create the virtual environments
 # NOTE: Using a different version of Python may cause installation errors.
-python3.11 -m venv Python_Hand_Tracker/venv_tracker
+python3.11 -m venv gui_app/venv_gui
 python3.11 -m venv Python_Hand_Tracker/venv_training
 
-# Install dependencies
-./Python_Hand_Tracker/venv_tracker/bin/pip install -r Python_Hand_Tracker/requirements_tracker.txt
-./Python_Hand_Tracker/venv_training/bin/pip install -r Python_Hand_Tracker/requirements_training.txt
+# Install dependencies for the GUI
+source gui_app/venv_gui/bin/activate
+pip install -r gui_app/requirements_gui.txt
+deactivate
+
+# Install dependencies for model training
+source Python_Hand_Tracker/venv_training/bin/activate
+pip install -r Python_Hand_Tracker/requirements_training.txt
+deactivate
 ```
 
-### 2. Using the `run.sh` Script
+### 3. Running the Application
 
-After the initial setup, you can use the `run.sh` script with one of the following commands: `collect`, `train`, or `inference`.
-
-**A. Collect Data**
-
-To collect new training data, run:
+To launch the GUI, run the following command from the project root directory:
 
 ```bash
-./run.sh collect
+gui_app/venv_gui/bin/python -m gui_app.main_app
 ```
 
-The script will automatically activate the correct environment and launch the data collection interface. Follow the on-screen prompts to record gestures. Data is appended to the existing `.csv` files in `models/data/`.
+## How to Use the Application
 
-**B. Train the Model**
+The application will guide you through a four-step process:
 
-After collecting data, train the model by running:
+1.  **Setup**: The initial page checks if all dependencies for both the GUI and training environments are correctly installed. Once all checks pass, you can proceed.
 
-```bash
-./run.sh train
-```
+2.  **Data Collection**: Use this page to record examples for your hand gestures. Select a gesture, specify the number of samples to collect, and press "Start Collecting." Perform the gesture in front of your camera until the progress bar is full.
 
-This will activate the training environment, run the training script, and save the updated model to `models/model.onnx`.
+3.  **Training**: On this page, you can start the model training process. The application will use the data you collected to train a neural network. You can monitor the progress in the log window and watch the training/validation accuracy improve in real-time on the graph.
 
-**C. Run Inference**
-
-To run the full end-to-end simulation, use the following command:
-
-```bash
-./run.sh inference
-```
-
-This command will:
-1.  Compile the C simulation code (if not already compiled).
-2.  Start the C simulation server in the background.
-3.  Launch the Python hand tracker, which will connect to the server and begin streaming data.
-
-The live camera feed will appear, and the terminal will show the real-time gesture predictions from the C simulation. To stop the simulation, simply close the camera window or press `Ctrl+C` in the terminal.
+4.  **Inference**: After the model is trained, this page allows you to test it. A live camera feed will be displayed, and the model will predict your hand gesture in real-time, showing the result and its confidence level.
