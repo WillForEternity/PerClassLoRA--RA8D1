@@ -4,6 +4,7 @@ import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from tensorflow.keras.models import Model, Sequential
+from tensorflow.keras.callbacks import CSVLogger
 from tensorflow.keras.layers import Dense, Dropout, Input
 import os
 import tf2onnx
@@ -15,6 +16,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Construct absolute paths for data and model output
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'models', 'data')
 SAVED_MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', 'models', 'saved_model')
+HISTORY_PATH = os.path.join(os.path.dirname(__file__), '..', 'models', 'training_history.csv')
 ONNX_MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', 'models', 'model.onnx')
 GESTURES = ['fist', 'palm', 'pointing']
 NUM_LANDMARKS = 6
@@ -88,10 +90,14 @@ if __name__ == '__main__':
     model.summary()
 
     print("\nTraining model...")
+    # Setup CSVLogger to save history after each epoch
+    csv_logger = CSVLogger(HISTORY_PATH, append=False)
+
     history = model.fit(X_train, y_train,
                         epochs=50,
                         batch_size=32,
                         validation_data=(X_test, y_test),
+                        callbacks=[csv_logger],
                         verbose=1)
 
     # 3. Evaluate Model

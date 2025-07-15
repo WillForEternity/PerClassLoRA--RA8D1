@@ -24,3 +24,7 @@ models/saved_model/
 
 # Binary model artifacts
 *.bin
+
+# Generated data and history
+models/data/*.csv
+models/training_history.csv
