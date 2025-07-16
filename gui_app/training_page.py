@@ -26,29 +26,29 @@ class MplCanvas(FigureCanvas):
         super(MplCanvas, self).__init__(fig)
 
 class TrainingWorker(QThread):
-    """Runs the training script as a subprocess in its own venv."""
+    """Runs the C training executable as a subprocess."""
     new_log_message = pyqtSignal(str)
 
     def run(self):
-        self.new_log_message.emit("--- Initializing training process...")
+        self.new_log_message.emit("--- Initializing C-based training process...")
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        training_venv_python = os.path.join(project_root, "Python_Hand_Tracker", "venv_training", "bin", "python")
-        training_script = os.path.join(project_root, "Python_Hand_Tracker", "train_model.py")
+        c_executable_dir = os.path.join(project_root, "RA8D1_Simulation")
+        c_executable_path = os.path.join(c_executable_dir, "train_c")
 
-        if not os.path.exists(training_venv_python) or not os.path.exists(training_script):
-            self.new_log_message.emit("[ERROR] Training environment or script not found.")
-            self.new_log_message.emit(f"Venv Path: {training_venv_python}")
-            self.new_log_message.emit(f"Script Path: {training_script}")
+        if not os.path.exists(c_executable_path):
+            self.new_log_message.emit(f"[ERROR] C training executable not found at: {c_executable_path}")
+            self.new_log_message.emit("Please compile it first by running 'make' in the RA8D1_Simulation directory.")
             return
 
         try:
             process = subprocess.Popen(
-                [training_venv_python, training_script],
+                [c_executable_path],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
+                cwd=c_executable_dir
             )
 
             for line in iter(process.stdout.readline, ''):
@@ -69,10 +69,6 @@ class TrainingPage(QWidget):
         self.training_worker = TrainingWorker()
         self.training_worker.new_log_message.connect(self.append_log_message)
         self.training_worker.finished.connect(self.on_training_finished)
-
-        self.graph_update_timer = QTimer(self)
-        self.graph_update_timer.setInterval(2000)  # Refresh every 2 seconds
-        self.graph_update_timer.timeout.connect(self.update_graph)
 
         self.setup_ui()
 
@@ -116,26 +112,15 @@ class TrainingPage(QWidget):
         self.log_console.setStyleSheet("background-color: #000; color: #0f0; border: 1px solid #444;")
         self.log_console.setText("Training logs will appear here...")
         main_content_layout.addWidget(self.log_console, 1) # Give log console a stretch factor of 1
-
-        self.graph_canvas = MplCanvas(self, width=5, height=4, dpi=100)
-        main_content_layout.addWidget(self.graph_canvas, 1) # Give graph a stretch factor of 1
         
         self.page_stack.addWidget(main_view)
 
     def start_training_process(self):
         self.log_console.clear()
-        # Clear previous graph
-        self.graph_canvas.axes.clear()
-        self.graph_canvas.axes.set_title('Training Progress', color='white')
-        self.graph_canvas.axes.set_xlabel('Epoch', color='white')
-        self.graph_canvas.axes.set_ylabel('Accuracy', color='white')
-        self.graph_canvas.draw()
-
         self.run_button.setEnabled(False)
         self.run_button.setText("Training in Progress...")
         self.set_navigation_enabled.emit(False)
         self.training_worker.start()
-        self.graph_update_timer.start()
 
     @pyqtSlot(str)
     def append_log_message(self, message):
@@ -143,38 +128,10 @@ class TrainingPage(QWidget):
         self.log_console.verticalScrollBar().setValue(self.log_console.verticalScrollBar().maximum())
 
     def on_training_finished(self):
-        self.graph_update_timer.stop()
         self.run_button.setEnabled(True)
         self.run_button.setText("Start Training")
         self.set_navigation_enabled.emit(True)
-        self.append_log_message("\n--- Process Finished ---")
-        self.update_graph() # One final update
-
-    def update_graph(self):
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        history_path = os.path.join(project_root, 'models', 'training_history.csv')
-
-        if not os.path.exists(history_path):
-            # It's normal for the file not to exist at the very beginning
-            return
-
-        try:
-            history_df = pd.read_csv(history_path)
-            self.graph_canvas.axes.clear() # Clear previous plot
-            self.graph_canvas.axes.plot(history_df['accuracy'], label='Training Accuracy', color='cyan')
-            self.graph_canvas.axes.plot(history_df['val_accuracy'], label='Validation Accuracy', color='magenta')
-            self.graph_canvas.axes.set_title('Training vs. Validation Accuracy', color='white')
-            self.graph_canvas.axes.set_xlabel('Epoch', color='white')
-            self.graph_canvas.axes.set_ylabel('Accuracy', color='white')
-            legend = self.graph_canvas.axes.legend()
-            for text in legend.get_texts():
-                text.set_color("white")
-            self.graph_canvas.draw()
-            self.graph_canvas.draw()
-            # Do not log every update to avoid spamming the console
-            # self.append_log_message("[INFO] Training graph updated.")
-        except Exception as e:
-            self.append_log_message(f"[GRAPH ERROR] Failed to plot history: {e}")
+        self.append_log_message("\n--- C-Based Training Process Finished ---")
 
     def set_setup_status(self, is_complete):
         self.is_setup_complete = is_complete

@@ -6,6 +6,7 @@
 #define RA8D1_FLASH_BUDGET_KB 2048
 
 // Our application's self-imposed SRAM limit for this simulation
-#define APP_SRAM_LIMIT (256 * 1024) // 256 KB
+#define APP_SRAM_LIMIT (1024 * 1024) // 1 MB (1024 KB)
+
 
 #endif // MCU_CONSTRAINTS_H

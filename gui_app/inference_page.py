@@ -51,19 +51,16 @@ class InferencePage(QWidget):
         self.setup_ui()
         
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        model_path = os.path.join(project_root, 'models', 'model.onnx')
+        c_model_path = os.path.join(project_root, 'models', 'c_model.bin')
 
-        if not os.path.exists(model_path):
-            self.prediction_label.setText("Error: model.onnx not found!")
+        if not os.path.exists(c_model_path):
+            self.prediction_label.setText("Error: c_model.bin not found! Please train the model first.")
             self.start_button.setEnabled(False)
             return
 
         self.hand_tracker = HandTracker()
-        self.gesture_predictor = GesturePredictor(model_path)
-        self.worker = InferenceWorker(self.hand_tracker, self.gesture_predictor)
-
-        self.worker.new_frame.connect(self.update_video_feed)
-        self.worker.new_prediction.connect(self.update_prediction)
+        self.gesture_predictor = None # Will be initialized when inference starts
+        self.worker = None # Will be initialized when inference starts
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
@@ -100,14 +97,25 @@ class InferencePage(QWidget):
         layout.addLayout(content_layout)
 
     def toggle_inference(self):
-        if self.worker.isRunning():
+        if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.start_button.setText("Start Inference")
             self.set_navigation_enabled.emit(True)
+            if self.gesture_predictor:
+                self.gesture_predictor.cleanup()
+                self.gesture_predictor = None
         else:
-            self.worker.start()
-            self.start_button.setText("Stop Inference")
-            self.set_navigation_enabled.emit(False)
+            try:
+                self.gesture_predictor = GesturePredictor()
+                self.worker = InferenceWorker(self.hand_tracker, self.gesture_predictor)
+                self.worker.new_frame.connect(self.update_video_feed)
+                self.worker.new_prediction.connect(self.update_prediction)
+                self.worker.start()
+                self.start_button.setText("Stop Inference")
+                self.set_navigation_enabled.emit(False)
+            except Exception as e:
+                self.prediction_label.setText(f"Error: {e}")
+                self.start_button.setEnabled(False)
 
     @pyqtSlot(np.ndarray)
     def update_video_feed(self, frame):
@@ -123,10 +131,13 @@ class InferencePage(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        if hasattr(self, 'worker') and not self.worker.isRunning():
+        if not self.worker or not self.worker.isRunning():
             self.toggle_inference()
 
     def hideEvent(self, event):
         super().hideEvent(event)
-        if hasattr(self, 'worker') and self.worker.isRunning():
-            self.toggle_inference()
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+            if self.gesture_predictor:
+                self.gesture_predictor.cleanup()
+                self.gesture_predictor = None

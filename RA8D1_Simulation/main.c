@@ -5,46 +5,19 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <onnxruntime/onnxruntime_c_api.h>
+#include "training_logic.h"
 #include "mcu_constraints.h"
 
 #define SERVER_PORT 65432
-#define NUM_LANDMARKS 6
-#define NUM_COORDS 3
-#define NUM_CLASSES 3
-#define INPUT_BUFFER_SIZE (NUM_LANDMARKS * NUM_COORDS)
+#define INPUT_BUFFER_SIZE (INPUT_SIZE) // Use macro from our header
 #define RECV_BUFFER_SIZE 1024
 
 // --- Global Variables ---
 static float g_hand_landmark_data[INPUT_BUFFER_SIZE];
-const OrtApi* g_ort = NULL;
-OrtEnv* g_env = NULL;
-OrtSession* g_session = NULL;
+static Model g_model;
 const char* g_gesture_labels[NUM_CLASSES] = {"fist", "palm", "pointing"};
 
 // --- Helper Functions ---
-void CheckStatus(OrtStatus* status) {
-    if (status != NULL) {
-        const char* msg = g_ort->GetErrorMessage(status);
-        fprintf(stderr, "%s\n", msg);
-        g_ort->ReleaseStatus(status);
-        exit(1);
-    }
-}
-
-void initialize_onnx() {
-    g_ort = OrtGetApiBase()->GetApi(ORT_API_VERSION);
-    CheckStatus(g_ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "test", &g_env));
-    
-    OrtSessionOptions* session_options;
-    CheckStatus(g_ort->CreateSessionOptions(&session_options));
-
-    const char* model_path = "../models/model.onnx";
-    CheckStatus(g_ort->CreateSession(g_env, model_path, session_options, &g_session));
-    printf("ONNX Runtime initialized successfully. Model loaded from %s\n", model_path);
-
-    g_ort->ReleaseSessionOptions(session_options);
-}
 
 void parse_data(char* buffer) {
     char* token = strtok(buffer, ",");
@@ -55,22 +28,13 @@ void parse_data(char* buffer) {
     }
 }
 
-void run_inference() {
-    OrtMemoryInfo* memory_info;
-    CheckStatus(g_ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_info));
+void run_inference(int client_socket) {
 
-    int64_t input_shape[] = {1, INPUT_BUFFER_SIZE};
-    OrtValue* input_tensor = NULL;
-    CheckStatus(g_ort->CreateTensorWithDataAsOrtValue(memory_info, &g_hand_landmark_data, sizeof(g_hand_landmark_data), input_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_tensor));
+    // Use our forward_pass function
+    forward_pass(&g_model, g_hand_landmark_data, 0, 0); // epoch and sample_idx are not used in inference
 
-    const char* input_names[] = {"input"};
-    const char* output_names[] = {"output"};
-    OrtValue* output_tensor = NULL;
-
-    CheckStatus(g_ort->Run(g_session, NULL, input_names, (const OrtValue* const*)&input_tensor, 1, output_names, 1, &output_tensor));
-
-    float* output_data;
-    CheckStatus(g_ort->GetTensorMutableData(output_tensor, (void**)&output_data));
+    // Get the output from our model's output layer
+    float* output_data = g_model.output_layer.output;
 
     int max_index = 0;
     for (int i = 1; i < NUM_CLASSES; i++) {
@@ -78,16 +42,25 @@ void run_inference() {
             max_index = i;
         }
     }
-    printf("Prediction: %s\n", g_gesture_labels[max_index]);
+    float confidence = output_data[max_index];
 
-    g_ort->ReleaseValue(input_tensor);
-    g_ort->ReleaseValue(output_tensor);
-    g_ort->ReleaseMemoryInfo(memory_info);
+    // Send the result back to the client
+    char response_buffer[64];
+    snprintf(response_buffer, sizeof(response_buffer), "%d,%.4f\n", max_index, confidence);
+    send(client_socket, response_buffer, strlen(response_buffer), 0);
 }
 
 // --- Main Execution ---
 int main() {
-    initialize_onnx();
+    printf("Initializing C-based model...\n");
+    // init_model(&g_model); // No longer needed for static model, weights are loaded or random
+
+    const char* model_path = "../models/c_model.bin";
+    if (load_model(&g_model, model_path) != 0) {
+        fprintf(stderr, "Failed to load C model. Using random weights. Consider training first.\n");
+        // If model fails to load, we can proceed with a randomly initialized model for testing.
+        init_model(&g_model);
+    }
 
     int server_fd, new_socket;
     struct sockaddr_in address;
@@ -95,7 +68,7 @@ int main() {
     int addrlen = sizeof(address);
     char buffer[RECV_BUFFER_SIZE] = {0};
 
-    printf("RA8D1 Simulation: Socket Server Starting...\n");
+    printf("RA8D1 C-Model Simulation: Socket Server Starting...\n");
 
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) { perror("socket failed"); exit(EXIT_FAILURE); }
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) { perror("setsockopt"); exit(EXIT_FAILURE); }
@@ -112,29 +85,26 @@ int main() {
         printf("Waiting for a client connection...\n");
         if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0) { 
             perror("accept"); 
-            continue; // Continue to the next iteration to wait for a connection
+            continue;
         }
         printf("Client connected. Waiting for data...\n");
 
         while (1) {
             ssize_t bytes_received = read(new_socket, buffer, RECV_BUFFER_SIZE - 1);
-            printf("Bytes received: %zd\n", bytes_received);
             if (bytes_received > 0) {
                 buffer[bytes_received] = '\0';
                 parse_data(buffer);
-                printf("Running inference...\n");
-                run_inference();
+                run_inference(new_socket);
             } else {
                 printf("Client disconnected.\n");
                 close(new_socket);
-                break; // Break from inner loop to wait for a new connection
+                break;
             }
         }
     }
     close(server_fd);
-    g_ort->ReleaseSession(g_session);
-    g_ort->ReleaseEnv(g_env);
-    printf("ONNX Runtime cleaned up. Exiting.\n");
+    // free_model is no longer needed with static allocation.
+    printf("C-Model server shutting down.\n");
 
     return 0;
 }

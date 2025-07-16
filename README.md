@@ -1,87 +1,111 @@
-# Hand Gesture Recognition GUI
+# Hand Gesture Recognition: C Backend Simulation
 
-This project provides a complete, user-friendly graphical interface (GUI) for building, training, and deploying a hand gesture recognition model. The application guides the user through the entire machine learning workflow, from setting up the environment to real-time inference.
+A complete hand gesture recognition system designed for deployment on the Renesas RA8D1 embedded MCU. This project features a Python GUI frontend that orchestrates a C backend implementing neural network training and inference with static memory allocation suitable for bare-metal embedded systems.
 
- <!-- Replace with a real screenshot -->
+## Project Status: COMPLETE & WORKING!
+
+**Latest Update (July 16, 2025)**: The entire system is now fully functional with seamless end-to-end operation!
+
+**What Works:**
+- Real-time hand gesture recognition (fist, palm, pointing)
+- Complete Python GUI with data collection, training, and inference
+- C backend neural network training and inference
+- Automated startup script for hassle-free operation
+- Robust socket communication between GUI and C server
+- Memory-constrained C implementation ready for RA8D1 deployment
+
+**Key Achievement**: Resolved all connection issues between Python GUI and C inference server through automated process management.
 
 ## Features
 
-- **End-to-End Workflow:** A single application for data collection, model training, and live inference.
-- **User-Friendly Interface:** Built with PyQt6 for a clean and intuitive user experience.
-- **Automated Setup:** The application checks for necessary dependencies and environments, guiding the user through the setup process.
-- **Live Camera Feed:** Visual feedback during data collection and inference.
-- **Real-Time Training Graph:** Monitor model performance with a live-updating graph during training.
-- **Isolated Environments:** Uses separate Python virtual environments for the GUI, data collection, and training to prevent dependency conflicts.
+- **Python GUI Frontend:** A user-friendly interface built with PyQt6 for data collection and workflow management.
+- **C-Based ML Backend:** All neural network training and inference logic is written in C, removing dependencies like TensorFlow and ONNX.
+- **Static Memory Allocation:** The C model uses 100% static memory allocation, with no `malloc` or `free` calls for the model's data, making it suitable for bare-metal embedded systems.
+- **Compile-Time Memory Check:** A `static_assert` in the C code ensures the model's SRAM usage does not exceed the hardware limits of the target MCU (1MB for the Renesas RA8D1), preventing runtime errors.
+- **Hybrid Workflow:** The Python GUI seamlessly orchestrates the C executables, calling a `train_c` binary for training and communicating with a `ra8d1_sim` TCP server for inference.
 
 ## Getting Started
 
 ### 1. Prerequisites
 
 - Python 3.11
+- A C compiler (e.g., `gcc` or `clang`)
+- `make`
 
 ### 2. Initial Setup
 
-Before launching the application for the first time, you need to create the required virtual environments and install the dependencies.
+This setup involves creating a Python virtual environment for the GUI and compiling the C backend.
 
 ```bash
-# Create the virtual environments for the GUI and training
-# NOTE: Using a different version of Python may cause installation errors.
+# 1. Create the virtual environment for the GUI
 python3.11 -m venv gui_app/venv_gui
-python3.11 -m venv Python_Hand_Tracker/venv_training
 
-# Install dependencies for the GUI
+# 2. Install Python dependencies for the GUI
 source gui_app/venv_gui/bin/activate
 pip install -r gui_app/requirements_gui.txt
 deactivate
 
-# Install dependencies for training
-source Python_Hand_Tracker/venv_training/bin/activate
-pip install -r Python_Hand_Tracker/requirements_training.txt
-deactivate
+# 3. Compile the C backend executables
+cd RA8D1_Simulation/
+make
+cd ..
 ```
 
 ### 3. Running the Application
 
-Once the setup is complete, launch the GUI application:
+Once the setup is complete, use the automated startup script to launch both the C inference server and GUI application:
 
 ```bash
-# Activate the GUI environment
-source gui_app/venv_gui/bin/activate
+# Run the complete application (starts C server + GUI)
+./start_app.sh
+```
 
-# Run the main application
-python -m gui_app.main_app
+The script will:
+- Start the C inference server in the background
+- Wait for it to initialize and accept connections
+- Launch the GUI application
+- Automatically clean up both processes when you exit
+
+**Alternative Manual Method:**
+If you prefer to run components separately:
+
+```bash
+# Terminal 1: Start C inference server
+cd RA8D1_Simulation/
+./ra8d1_sim
+
+# Terminal 2: Start GUI (in project root)
+source gui_app/venv_gui/bin/activate
+python gui_app/main_app.py
 ```
 
 ## Application Workflow
 
-The GUI is organized into four distinct pages:
+The GUI orchestrates the C backend as follows:
 
-1.  **Setup:** Automatically checks if the required virtual environments and dependencies are correctly installed. It provides instructions if any part of the setup is missing.
-2.  **Data Collection:** Use your camera to record hand gestures. Select a gesture to record, and the application will capture hand landmark data and save it to a CSV file.
-3.  **Training:** Train the neural network on the data you collected. The application runs the training script in an isolated environment and displays a live graph of the model's accuracy.
-4.  **Inference:** Test your trained model in real-time. The application displays a live camera feed and uses the model to predict and display your hand gestures.
+1.  **Data Collection:** Use your camera to record hand gestures. This part is handled in Python and saves data to CSV files.
+2.  **Training:** When you click "Train Model," the GUI launches the compiled `./RA8D1_Simulation/train_c` executable as a subprocess. The C program handles data loading, model training, and saving the `c_model.bin` file.
+3.  **Inference:** The GUI starts the `./RA8D1_Simulation/ra8d1_sim` executable, which acts as a TCP server. The Python application then sends hand landmark data to the C server over a socket and receives predictions back for display.
 
 ## File Structure
 
 ```
 .
+├── RA8D1_Simulation/
+│   ├── main.c                 # C code for the inference server (ra8d1_sim)
+│   ├── train_in_c.c           # C code for the training executable (train_c)
+│   ├── training_logic.h       # Header for C neural network structures and functions
+│   ├── training_logic.c       # C implementation of the neural network
+│   ├── mcu_constraints.h      # Defines MCU memory limits for compile-time checks
+│   └── Makefile               # Makefile to compile the C code
+│
 ├── gui_app/
 │   ├── venv_gui/              # Virtual environment for the GUI
 │   ├── main_app.py            # Main entry point for the application
-│   ├── logic.py               # Core logic for HandTracking and Prediction
-│   ├── setup_page.py          # UI and logic for the Setup page
-│   ├── data_collection_page.py# UI and logic for Data Collection page
-│   ├── training_page.py       # UI and logic for the Training page
-│   ├── inference_page.py      # UI and logic for the Inference page
-│   └── requirements_gui.txt   # Pip requirements for the GUI
-│
-├── Python_Hand_Tracker/
-│   ├── venv_training/         # Virtual environment for model training
-│   ├── train_model.py         # Script to train the model and export to ONNX
-│   └── requirements_training.txt # Pip requirements for training
+│   ├── logic.py               # Core GUI logic, including socket communication
+│   └── ... (other UI files)
 │
 └── models/
     ├── data/                  # CSV files with hand landmark data
-    ├── saved_model/           # TensorFlow SavedModel format
-    └── model.onnx             # Final model in ONNX format
+    └── c_model.bin            # The trained model, saved in a binary format by the C code
 ```

@@ -6,7 +6,7 @@ import mediapipe as mp
 import csv
 import time
 import numpy as np
-import onnxruntime as ort
+import socket
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 TRACKER_VENV = os.path.join(PROJECT_ROOT, "Python_Hand_Tracker", "venv_tracker")
@@ -128,28 +128,90 @@ class HandTracker:
 # --- Gesture Prediction ---
 
 class GesturePredictor:
-    """Handles loading the ONNX model and running inference."""
-    def __init__(self, model_path):
-        self.session = ort.InferenceSession(model_path)
-        self.input_name = self.session.get_inputs()[0].name
-        self.output_name = self.session.get_outputs()[0].name
-        self.classes = ['fist', 'palm', 'pointing'] # Should match training
+    """
+    Manages the C-based inference server process and communicates with it
+    over a socket to get gesture predictions.
+    """
+    def __init__(self):
+        self.c_server_process = None  # Not used anymore - server is started externally
+        self.client_socket = None
+        self.host = 'localhost'
+        self.port = 65432
+        self.classes = ['fist', 'palm', 'pointing'] # Should match C model output
+        # Connect to already-running C server (started by start_app.sh)
+        self._connect_to_server()
+
+    def _start_c_server(self):
+        """Launches the C inference server as a background process."""
+        c_executable_dir = os.path.join(PROJECT_ROOT, "RA8D1_Simulation")
+        c_executable_path = os.path.join(c_executable_dir, "ra8d1_sim")
+
+        if not os.path.exists(c_executable_path):
+            raise FileNotFoundError(f"C inference server not found at {c_executable_path}")
+
+        print("Starting C inference server...")
+        self.c_server_process = subprocess.Popen(
+            [c_executable_path],
+            cwd=c_executable_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        print("C inference server process launched.")
+
+    def _connect_to_server(self):
+        """Connects to the running C inference server socket with a retry mechanism."""
+        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        retries = 10
+        for i in range(retries):
+            try:
+                self.client_socket.connect((self.host, self.port))
+                print(f"Successfully connected to C inference server on attempt {i+1}.")
+                return # Exit the method on successful connection
+            except (ConnectionRefusedError, OSError):
+                if i < retries - 1:
+                    time.sleep(0.2) # Wait before retrying
+                else:
+                    print("[ERROR] Failed to connect to the C inference server after multiple attempts.")
+                    self.cleanup()
+                    raise RuntimeError("Could not connect to C inference server.")
 
     def predict(self, landmark_data):
         """
-        Predicts the gesture from landmark data.
-        Returns the predicted gesture label and the confidence score.
+        Sends landmark data to the C server and returns the prediction.
         """
-        # Model expects a batch, so we reshape
-        input_data = np.array(landmark_data, dtype=np.float32).reshape(1, -1)
-        
-        # Run inference
-        result = self.session.run([self.output_name], {self.input_name: input_data})[0]
-        
-        # Get prediction and confidence
-        prediction_index = np.argmax(result)
-        confidence = result[0][prediction_index]
-        predicted_gesture = self.classes[prediction_index]
-        
-        return predicted_gesture, confidence
+        if not self.client_socket:
+            return "Error", 0.0
+
+        try:
+            data_string = ",".join(map(str, landmark_data)) + "\n"
+            self.client_socket.sendall(data_string.encode('utf-8'))
+            response = self.client_socket.recv(1024).decode('utf-8').strip()
+            
+            if not response:
+                return "No response", 0.0
+
+            parts = response.split(',')
+            prediction_index = int(parts[0])
+            confidence = float(parts[1])
+            predicted_gesture = self.classes[prediction_index]
+            
+            return predicted_gesture, confidence
+
+        except (BrokenPipeError, ConnectionResetError) as e:
+            print(f"Connection to C server lost: {e}")
+            self.cleanup()
+            return "Connection Lost", 0.0
+        except Exception as e:
+            print(f"An error occurred during prediction: {e}")
+            return "Error", 0.0
+
+    def cleanup(self):
+        """Gracefully shuts down the socket connection."""
+        print("Cleaning up GesturePredictor...")
+        if self.client_socket:
+            self.client_socket.close()
+            self.client_socket = None
+            print("Socket closed.")
+        # C server process is managed externally by start_app.sh
+        print("GesturePredictor cleanup complete.")
 
