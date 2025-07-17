@@ -49,6 +49,9 @@ class InferencePage(QWidget):
     set_navigation_enabled = pyqtSignal(bool)
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.hand_tracker = HandTracker()
+        self.worker = None # Initialize worker to None
+        self.gesture_predictor = None # Will be initialized when inference starts
         self.setup_ui()
         
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -58,10 +61,6 @@ class InferencePage(QWidget):
             self.prediction_label.setText("Error: c_model.bin not found! Please train the model first.")
             self.start_button.setEnabled(False)
             return
-
-        self.hand_tracker = HandTracker()
-        self.gesture_predictor = None # Will be initialized when inference starts
-        self.worker = None # Will be initialized when inference starts
 
     def setup_ui(self):
         layout = QVBoxLayout(self)

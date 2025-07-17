@@ -33,17 +33,17 @@ class CameraWorker(QThread):
             if not ret:
                 continue
 
-            results = self.hand_tracker.process_frame(frame)
-            if results.multi_hand_landmarks:
-                for hand_landmarks in results.multi_hand_landmarks:
-                    self.hand_tracker.draw_landmarks(frame, hand_landmarks)
-                    if self._collecting and len(collected_data) < self.samples_to_collect:
-                        current_time = time.time()
-                        if current_time - last_capture_time >= capture_interval:
-                            landmark_data = self.hand_tracker.get_landmark_data(hand_landmarks)
-                            collected_data.append(landmark_data)
-                            last_capture_time = current_time
-                            self.collection_update.emit(len(collected_data))
+            hand_landmarks, annotated_frame = self.hand_tracker.process_frame(frame)
+            if hand_landmarks:
+                # The process_frame now returns a single hand_landmarks object
+                self.hand_tracker.draw_landmarks(annotated_frame, hand_landmarks)
+                if self._collecting and len(collected_data) < self.samples_to_collect:
+                    current_time = time.time()
+                    if current_time - last_capture_time >= capture_interval:
+                        landmark_data = self.hand_tracker.get_landmark_data(hand_landmarks)
+                        collected_data.append(landmark_data)
+                        last_capture_time = current_time
+                        self.collection_update.emit(len(collected_data))
 
             if self._collecting and len(collected_data) >= self.samples_to_collect:
                 self._collecting = False
@@ -51,7 +51,7 @@ class CameraWorker(QThread):
                 self.collection_finished.emit(self.current_gesture, count)
                 collected_data = []
 
-            self.new_frame.emit(cv2.flip(frame, 1))
+            self.new_frame.emit(cv2.flip(annotated_frame, 1))
         cap.release()
 
     def start_collection(self, gesture, num_samples):

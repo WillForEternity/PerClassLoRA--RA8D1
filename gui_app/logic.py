@@ -112,9 +112,11 @@ class HandTracker:
         if scale_factor < 1e-6: # Avoid division by zero
             scale_factor = 1
 
-        # 3. Scale the data and flatten for saving/inference
+        # 3. Scale the data
         normalized_landmarks = relative_landmarks / scale_factor
-        return normalized_landmarks.flatten().tolist()
+
+        # 4. Exclude the wrist landmark (it's the origin) and flatten
+        return normalized_landmarks[1:].flatten().tolist()
 
     def get_landmark_data(self, hand_landmarks):
         """Extracts, normalizes, and flattens all 21 landmark coordinates for inference."""

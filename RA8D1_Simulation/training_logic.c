@@ -278,6 +278,11 @@ int load_temporal_data(const char* dir_path, const char** gestures, int num_gest
                 int frame_count = 0;
                 while (fgets(line, sizeof(line), file) && frame_count < MAX_FRAMES_PER_FILE) {
                     char* token = strtok(line, ",");
+                    // Skip the first 3 values (wrist landmark)
+                    for (int k = 0; k < 3; ++k) {
+                        if (token) token = strtok(NULL, ",");
+                    }
+
                     for (int j = 0; j < INPUT_SIZE; ++j) {
                         if (token) {
                             temp_frames[frame_count * INPUT_SIZE + j] = atof(token);

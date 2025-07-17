@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 // --- Constants for Temporal Model ---
-#define INPUT_SIZE (6 * 3)      // 6 landmarks, 3 coordinates per frame
+#define INPUT_SIZE (20 * 3)     // 20 landmarks (excluding wrist), 3 coordinates per frame
 #define NUM_CLASSES 3           // wave, swipe_left, swipe_right
 #define SEQUENCE_LENGTH 100     // Number of frames per gesture sequence
 

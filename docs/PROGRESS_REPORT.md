@@ -33,6 +33,7 @@ The project delivered a robust, end-to-end solution for building and testing a c
 1.  **Successfully Ported to a Temporal Model**: The architecture was fundamentally refactored from a simple, static model to a complex TCN capable of understanding time-series data.
 2.  **Stabilized C-Based Training**: Overcame the critical `NaN` loss bug by identifying the "Dying ReLU" problem and switching to Leaky ReLU, resulting in a stable and effective training process in C.
 3.  **Rock-Solid GUI-Backend Integration**: Overcame critical stability bugs by re-architecting the server-client communication protocol. This involved fixing connection overload, race conditions, and data corruption issues, resulting in a truly robust and seamless user experience.
+4.  **Data Pipeline Optimization**: Refined the input feature set by removing the redundant wrist landmark after normalization. This reduced the feature vector from 63 to 60 dimensions, which directly contributed to a lower training loss and a more accurate final model.
 
 This represents the **complete realization** of the original embedded ML simulation concept, but elevated to handle the more complex and powerful domain of temporal gesture recognition.
 

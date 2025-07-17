@@ -22,6 +22,13 @@ The communication workflow is designed for time-series data:
 1.  **Training**: The GUI invokes the `train_c` executable, which reads directories of CSV files (e.g., `models/data/wave/`), where each file represents one complete gesture sequence.
 2.  **Inference**: The Python GUI buffers frames from the camera into a sequence of a fixed length (e.g., 30 frames). Once the buffer is full, the entire sequence is sent to the `ra8d1_sim` server via a TCP socket for a single prediction.
 
+### Data Normalization and Feature Engineering
+
+A key optimization in the data pipeline is the handling of the hand landmarks. For each frame:
+
+1.  **Normalization**: The 21 hand landmarks are normalized by treating the wrist (landmark 0) as the origin (0,0,0). This makes the gesture data invariant to the hand's position in the camera frame.
+2.  **Feature Exclusion**: The wrist landmark's own coordinates are **excluded** from the feature vector. Since it's always the origin, it provides no useful information to the model. This reduces the input feature size from 63 (21 * 3) to **60 (20 * 3)**, creating a more efficient and focused dataset that has been shown to improve model training performance.
+
 ## Key Technical Achievements
 
 1.  **TCN in Pure C with Static Memory**: The project's primary achievement is the successful implementation of a TCN from scratch in C. All model parameters, activations, and gradients are stored in **statically allocated structs and arrays**. This complete avoidance of `malloc` for the model is critical for embedded systems, preventing memory leaks and ensuring predictable performance.

@@ -1,6 +1,6 @@
 # Temporal Hand Gesture Recognition for Embedded Systems
 
-A complete, end-to-end system for training and deploying a **temporal hand gesture recognition** model on a resource-constrained embedded MCU (Renesas RA8D1). The project features a Python GUI for data management and a high-performance C backend that implements a **Temporal Convolutional Network (TCN)** with 100% static memory allocation.
+A complete, end-to-end system for training and deploying a **temporal hand gesture recognition** model on a resource-constrained embedded MCU (Renesas RA8D1). The project features a Python GUI for data management, a high-performance C backend that implements a **Temporal Convolutional Network (TCN)** with 100% static memory allocation, and an optimized data pipeline that improves model accuracy.
 
 ## Project Status: COMPLETE & STABLE
 
@@ -13,6 +13,7 @@ A complete, end-to-end system for training and deploying a **temporal hand gestu
 -   **Python GUI**: A comprehensive PyQt6 application for data collection, training, and real-time inference.
 -   **Live Training Logs**: The GUI's training page now streams log output directly from the C training process in real-time.
 -   **Embedded-Ready C Backend**: All ML logic is in C with static memory allocation and compile-time memory checks to ensure it fits within the 1MB SRAM budget of the RA8D1 MCU.
+-   **Optimized Data Pipeline**: The input feature set has been refined to 60 dimensions (20 landmarks x 3 coordinates), excluding the wrist landmark. This resulted in a more efficient model with significantly improved training accuracy.
 -   **Automated Workflow**: A single script (`start_app.sh`) manages the C inference server and Python GUI, handling all setup and cleanup automatically.
 
 ## Architecture: Python Orchestrator, C Engine
