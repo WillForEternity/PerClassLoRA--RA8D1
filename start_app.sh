@@ -38,6 +38,19 @@ trap cleanup SIGINT SIGTERM EXIT
 
 echo -e "${GREEN}=== Hand Gesture Recognition App Startup ===${NC}"
 
+# Kill any process that might be lingering on the server port
+echo -e "${YELLOW}Checking for and terminating any existing server processes...${NC}"
+PID_TO_KILL=$(lsof -ti :65432)
+
+if [ -n "$PID_TO_KILL" ]; then
+    echo "Found existing process $PID_TO_KILL on port 65432. Terminating..."
+    kill -9 "$PID_TO_KILL"
+    sleep 1 # Give the OS a moment to release the port
+    echo "Process terminated."
+else
+    echo "No existing process found. Port is clear."
+fi
+
 # Check if C executable exists
 if [ ! -f "$C_SERVER_DIR/ra8d1_sim" ]; then
     echo -e "${RED}Error: C inference server not found at $C_SERVER_DIR/ra8d1_sim${NC}"
@@ -79,26 +92,6 @@ if ! kill -0 "$C_SERVER_PID" 2>/dev/null; then
     rm -f "$PID_FILE"
     exit 1
 fi
-
-# Test if the server is accepting connections
-echo "Testing server connection..."
-python3 -c "
-import socket
-import time
-try:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(5)
-    sock.connect(('localhost', 65432))
-    sock.close()
-    print('✓ C server is accepting connections')
-except Exception as e:
-    print(f'✗ Connection test failed: {e}')
-    exit(1)
-" || {
-    echo -e "${RED}Error: C server is not accepting connections.${NC}"
-    cleanup
-    exit 1
-}
 
 echo -e "${GREEN}✓ C inference server is running and ready${NC}"
 

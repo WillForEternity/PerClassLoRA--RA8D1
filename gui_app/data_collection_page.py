@@ -73,7 +73,7 @@ class DataCollectionPage(QWidget):
         self.is_setup_complete = False
         self.hand_tracker = HandTracker()
         self.worker = CameraWorker(self.hand_tracker)
-        self.data_counts = {"fist": 0, "palm": 0, "pointing": 0}
+        self.data_counts = {"wave": 0, "swipe_left": 0, "swipe_right": 0}
 
         self.setup_ui()
 

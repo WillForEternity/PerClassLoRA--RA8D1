@@ -27,17 +27,18 @@ class InferenceWorker(QThread):
             if not ret:
                 continue
 
-            results = self.hand_tracker.process_frame(frame)
-            if results.multi_hand_landmarks:
-                for hand_landmarks in results.multi_hand_landmarks:
-                    self.hand_tracker.draw_landmarks(frame, hand_landmarks)
-                    landmark_data = self.hand_tracker.get_landmark_data(hand_landmarks)
-                    
-                    if landmark_data:
-                        gesture, confidence = self.gesture_predictor.predict(landmark_data)
-                        self.new_prediction.emit(gesture, confidence)
+            # Process the frame to get hand landmarks and the annotated image
+            hand_landmarks, annotated_frame = self.hand_tracker.process_frame(frame)
 
-            self.new_frame.emit(cv2.flip(frame, 1))
+            # Get landmark data (will be None if no hand is detected)
+            landmark_data = self.hand_tracker.get_landmark_data(hand_landmarks)
+
+            # Always run prediction. The predictor's logic will handle the None case.
+            predicted_gesture, confidence = self.gesture_predictor.predict(landmark_data)
+            self.new_prediction.emit(predicted_gesture, confidence)
+
+            # Update the video feed with the annotated frame
+            self.new_frame.emit(cv2.flip(annotated_frame, 1))
         cap.release()
 
     def stop(self):

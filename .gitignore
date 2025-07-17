@@ -11,6 +11,7 @@ gui_app/venv_gui/
 *.o
 *.out
 RA8D1_Simulation/ra8d1_sim
+RA8D1_Simulation/train_c
 
 # Generated Models (but not the data)
 models/model.onnx
@@ -18,13 +19,10 @@ models/saved_model/
 
 # OS-specific
 .DS_Store
+*.dSYM/
 
 # Log files
 *.log
 
-# Binary model artifacts
-*.bin
-
-# Generated data and history
-models/data/*.csv
+# Generated training history (but not the data itself)
 models/training_history.csv

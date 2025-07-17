@@ -1,73 +1,56 @@
-# Project Explanation: C-Based Backend for Embedded ML Simulation
+# Project Explanation: Temporal Gesture Recognition with a C-Based TCN
 
-This document outlines the architecture of the Hand Gesture Recognition project, which uses a Python GUI to control a C-based machine learning backend, simulating a workflow for a resource-constrained microcontroller (the Renesas RA8D1).
+This document outlines the final architecture of the Temporal Hand Gesture Recognition project. The system uses a Python GUI to orchestrate a C-based backend that implements a **Temporal Convolutional Network (TCN)**, simulating a complete workflow for a resource-constrained microcontroller (the Renesas RA8D1).
 
-## Core Objective: Realistic Embedded Simulation
+## Core Objective: High-Fidelity Temporal Model Simulation
 
-The primary goal was to replace a standard Python ML backend (TensorFlow, ONNX) with a pure C implementation that adheres to the strict memory limitations of an embedded system. This provides a high-fidelity simulation of how a neural network would operate on a bare-metal device.
+The project's goal evolved from simulating a simple static model to implementing a sophisticated **temporal model** capable of recognizing dynamic gestures. The final architecture pairs a user-friendly Python GUI with a high-performance C backend that runs a TCN, all while adhering to the strict memory and processing constraints of an embedded system.
 
-The final architecture achieves this by pairing a user-friendly Python GUI with powerful, efficient C executables.
+## Architectural Design
 
-## Architectural Design: Python GUI + C Executables
+The hybrid architecture leverages the strengths of both Python and C:
 
-The architecture is a hybrid model designed to leverage the strengths of both Python and C:
+-   **Python GUI (PyQt6):** Serves as the high-level orchestrator. It manages the user interface, camera input, and the collection of gesture **sequences** (e.g., 30 frames of a "wave" gesture). It does not perform any ML calculations.
+-   **C Backend (TCN Engine):** All core ML logic is in C, compiled into two standalone executables:
+    -   `train_c`: Trains the TCN model using the sequences of CSV files collected by the GUI.
+    -   `ra8d1_sim`: A TCP server that loads the trained TCN and performs inference on gesture sequences streamed from the GUI.
 
--   **Python GUI (PyQt6):** Serves as the high-level user interface and workflow orchestrator. It handles user interaction, camera management, and data visualization. It does *not* perform any ML calculations.
--   **C Backend (Executables):** Contains all the core neural network logic. It is compiled into two standalone programs:
-    -   `train_c`: A command-line program that loads data, trains the neural network, and saves the model.
-    -   `ra8d1_sim`: A TCP server that loads the trained model and waits for inference requests.
+### Temporal Data Workflow
 
-### Communication Workflow
+The communication workflow is designed for time-series data:
 
-The Python GUI controls the C backend through two distinct mechanisms:
+1.  **Training**: The GUI invokes the `train_c` executable, which reads directories of CSV files (e.g., `models/data/wave/`), where each file represents one complete gesture sequence.
+2.  **Inference**: The Python GUI buffers frames from the camera into a sequence of a fixed length (e.g., 30 frames). Once the buffer is full, the entire sequence is sent to the `ra8d1_sim` server via a TCP socket for a single prediction.
 
-1.  **Training (Subprocess):** When the user clicks "Train Model," the GUI invokes the `train_c` executable using Python's `subprocess` module. This runs the entire training process in a separate, isolated C environment.
-2.  **Inference (TCP Sockets):** For real-time prediction, the GUI launches the `ra8d1_sim` server. It then establishes a TCP socket connection and streams hand landmark data to the C server, which performs the inference and sends the prediction result back.
+## Key Technical Achievements
 
-This design effectively decouples the UI from the core ML logic, allowing the C code to be developed and optimized independently, just as it would be for a real embedded target.
+1.  **TCN in Pure C with Static Memory**: The project's primary achievement is the successful implementation of a TCN from scratch in C. All model parameters, activations, and gradients are stored in **statically allocated structs and arrays**. This complete avoidance of `malloc` for the model is critical for embedded systems, preventing memory leaks and ensuring predictable performance.
 
-## Key Technical Achievement: Static Memory Allocation
+2.  **Compile-Time Memory Constraint**: To guarantee the model fits within the 1MB SRAM budget of the Renesas RA8D1, a `static_assert` in `mcu_constraints.h` checks the model's size at compile time. This provides immediate feedback if the network architecture becomes too large for the target hardware.
 
-The most critical part of the C backend refactor was the transition to **100% static memory allocation** for the neural network model. This was essential for creating a realistic embedded simulation.
+## Stabilizing the Server-Client Communication
 
--   **No Dynamic Allocation:** All model layers—including weights, biases, outputs, and gradients—are stored in fixed-size arrays. There are no `malloc` or `free` calls associated with the model, eliminating the risk of memory leaks and fragmentation common in embedded systems.
--   **Compile-Time SRAM Constraint:** To enforce the memory budget of the Renesas RA8D1 (1MB of SRAM), a `static_assert` was added to `mcu_constraints.h`:
-    ```c
-    static_assert(sizeof(Model) <= APP_SRAM_LIMIT, "Error: Model size exceeds SRAM budget!");
-    ```
-    This powerful feature checks the model's memory footprint at compile time. If a developer increases the network size beyond the MCU's limit, the code will fail to compile, providing immediate feedback and preventing the deployment of oversized models.
+While the C-based TCN was a major achievement, the initial system suffered from critical stability issues during real-time inference, leading to server crashes and data corruption. The root cause was a naive networking implementation.
 
-## Debugging and Refinement
+1.  **The Problem: Connection Overload & Protocol Mismatch**: The Python GUI was opening a new TCP socket for every single frame sent to the inference server. This constant opening and closing of connections overwhelmed the C server, causing it to crash with "Broken pipe" errors. Furthermore, a protocol mismatch (the client expected a persistent connection while the server was closing it immediately) and a TCP streaming bug (multiple server responses were being read at once by the client) led to data parsing errors.
 
-During development, the C training process exhibited numerical instability, resulting in `NaN` (Not a Number) loss values. This was traced to two issues:
+2.  **The Solution: Persistent Connections & Buffered Reading**: The fix required a complete overhaul of the communication protocol:
+    -   **Persistent TCP Connection**: The Python client and C server were refactored to use a single, persistent TCP connection that remains open for the entire inference session. This eliminated the connection overhead and stabilized the server.
+    -   **Buffered Reader**: On the client side, the socket was wrapped in a buffered reader (`makefile('r')`). This ensures that even if multiple responses arrive in the TCP stream at once, they are correctly queued and read one line at a time, fixing the data corruption bug.
+    -   **Intelligent Startup**: The `start_app.sh` script was enhanced to detect and kill any zombie server processes occupying the required port, preventing "Address already in use" errors on startup.
 
-1.  **High Learning Rate:** The initial learning rate was too high, causing exploding gradients.
-2.  **Weight Initialization:** The Box-Muller transform used for weight initialization could fail with a `logf(0)` error if the random number generator produced a zero.
+## Debugging the C-Based TCN: The `NaN` Loss Problem
 
-Both issues were resolved: the learning rate was lowered, and a small epsilon was added to the `logf` calculation to ensure its argument was always positive. This made the training process robust and stable.
+Stabilizing the C-based training was the most significant challenge. The model would consistently produce `NaN` (Not a Number) loss values, halting any learning. The debugging process revealed multiple compounding issues:
 
-## Final Integration Challenge: Process Management & Automation
-
-The last major hurdle was establishing reliable communication between the Python GUI and C inference server. Initial attempts suffered from race conditions and subprocess management issues that prevented the GUI from connecting to the C server.
-
-### Solution: Automated Startup Orchestration
-
-The breakthrough came with the creation of `start_app.sh`, an intelligent startup script that:
-
-1. **Sequential Startup**: Launches the C inference server first and waits for full initialization
-2. **Connection Validation**: Tests the TCP connection before proceeding
-3. **GUI Launch**: Only starts the Python GUI after confirming the C server is ready
-4. **Process Management**: Handles cleanup of both processes on exit
-
-This eliminated all timing issues and created a robust, single-command launch experience.
-
-### Architectural Refinement
-
-The `GesturePredictor` class was refactored to connect to an externally-managed server rather than attempting its own subprocess management. This separation of concerns improved reliability and simplified the codebase.
+1.  **Initial Hypothesis (Exploding Gradients)**: Gradient clipping was implemented but did not solve the issue, suggesting a deeper problem.
+2.  **The Real Culprit: "Dying ReLU"**: Through extensive logging, we discovered that the standard ReLU activation function (`max(0, x)`) was causing most neuron gradients to become zero. This "killed" the neurons, preventing weight updates and causing the remaining active neurons to receive pathologically large gradients, which resulted in `NaN` values.
+3.  **The Solution: Leaky ReLU**: Switching to **Leaky ReLU** (`max(0.01*x, x)`) was the critical fix. It ensures a small, non-zero gradient always flows, preventing neurons from dying and stabilizing the network.
+4.  **Correcting Backpropagation**: Further debugging uncovered subtle bugs in the TCN's backpropagation logic, which were corrected to ensure gradients flowed correctly through the temporal layers.
 
 ## Conclusion
 
-By replacing the Python ML backend with a meticulously crafted C implementation and solving the final integration challenges, the project successfully achieved its goal of creating a high-fidelity embedded simulation. The final application is a powerful tool that provides a seamless user experience, enforces real-world memory constraints of the target microcontroller, and demonstrates production-ready embedded AI deployment patterns.
+By successfully evolving the project from a static model to a temporal one and solving the complex challenges of C-based TCN training, the project fully realizes its goal. The final application is a powerful, high-fidelity simulation of an advanced embedded AI system, demonstrating a production-ready pattern for deploying temporal models on resource-constrained devices.
 
-**Status**: ✅ FULLY FUNCTIONAL - End-to-end gesture recognition system operational with robust Python GUI ↔ C backend communication.
+**Status**: ✅ FULLY FUNCTIONAL - End-to-end temporal gesture recognition system operational.
 

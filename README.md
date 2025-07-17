@@ -1,111 +1,76 @@
-# Hand Gesture Recognition: C Backend Simulation
+# Temporal Hand Gesture Recognition for Embedded Systems
 
-A complete hand gesture recognition system designed for deployment on the Renesas RA8D1 embedded MCU. This project features a Python GUI frontend that orchestrates a C backend implementing neural network training and inference with static memory allocation suitable for bare-metal embedded systems.
+A complete, end-to-end system for training and deploying a **temporal hand gesture recognition** model on a resource-constrained embedded MCU (Renesas RA8D1). The project features a Python GUI for data management and a high-performance C backend that implements a **Temporal Convolutional Network (TCN)** with 100% static memory allocation.
 
-## Project Status: COMPLETE & WORKING!
+## Project Status: COMPLETE & STABLE
 
-**Latest Update (July 16, 2025)**: The entire system is now fully functional with seamless end-to-end operation!
+**Latest Update (July 16, 2025)**: The system is now **fully stable and reliable**. Critical bugs related to server-client communication have been resolved, resulting in a robust, crash-free user experience. The C-based TCN training is stable, and the Python GUI has been enhanced for a seamless workflow.
 
-**What Works:**
-- Real-time hand gesture recognition (fist, palm, pointing)
-- Complete Python GUI with data collection, training, and inference
-- C backend neural network training and inference
-- Automated startup script for hassle-free operation
-- Robust socket communication between GUI and C server
-- Memory-constrained C implementation ready for RA8D1 deployment
+**Key Features:**
+-   **Temporal Gesture Recognition**: Recognizes sequences of movements, not just static poses.
+-   **Temporal Convolutional Network (TCN)**: A modern, efficient architecture for sequence modeling, implemented in pure C.
+-   **Robust & Persistent Communication**: The GUI and C inference server now communicate over a stable, persistent TCP connection, eliminating previous crashes. A buffered reader on the client-side correctly handles TCP streaming, preventing data corruption.
+-   **Python GUI**: A comprehensive PyQt6 application for data collection, training, and real-time inference.
+-   **Live Training Logs**: The GUI's training page now streams log output directly from the C training process in real-time.
+-   **Embedded-Ready C Backend**: All ML logic is in C with static memory allocation and compile-time memory checks to ensure it fits within the 1MB SRAM budget of the RA8D1 MCU.
+-   **Automated Workflow**: A single script (`start_app.sh`) manages the C inference server and Python GUI, handling all setup and cleanup automatically.
 
-**Key Achievement**: Resolved all connection issues between Python GUI and C inference server through automated process management.
+## Architecture: Python Orchestrator, C Engine
 
-## Features
+The system uses a hybrid architecture to combine ease of use with high performance:
 
-- **Python GUI Frontend:** A user-friendly interface built with PyQt6 for data collection and workflow management.
-- **C-Based ML Backend:** All neural network training and inference logic is written in C, removing dependencies like TensorFlow and ONNX.
-- **Static Memory Allocation:** The C model uses 100% static memory allocation, with no `malloc` or `free` calls for the model's data, making it suitable for bare-metal embedded systems.
-- **Compile-Time Memory Check:** A `static_assert` in the C code ensures the model's SRAM usage does not exceed the hardware limits of the target MCU (1MB for the Renesas RA8D1), preventing runtime errors.
-- **Hybrid Workflow:** The Python GUI seamlessly orchestrates the C executables, calling a `train_c` binary for training and communicating with a `ra8d1_sim` TCP server for inference.
+-   **Python GUI Frontend**: Manages the user workflow, including camera interaction, data collection, and visualization. It orchestrates the C backend but performs no ML calculations itself.
+-   **C Backend Engine**: Two standalone C executables handle the core ML tasks:
+    -   `train_c`: A command-line utility that trains the TCN model on collected gesture sequences.
+    -   `ra8d1_sim`: A TCP server that loads the trained model and performs real-time inference on data streamed from the GUI.
 
 ## Getting Started
 
-### 1. Prerequisites
+### Prerequisites
+-   A C compiler (e.g., `gcc` or `clang`)
+-   `make`
+-   Python 3.11+
 
-- Python 3.11
-- A C compiler (e.g., `gcc` or `clang`)
-- `make`
+### Running the Application
 
-### 2. Initial Setup
+An intelligent setup and startup script makes running the application simple.
 
-This setup involves creating a Python virtual environment for the GUI and compiling the C backend.
-
-```bash
-# 1. Create the virtual environment for the GUI
-python3.11 -m venv gui_app/venv_gui
-
-# 2. Install Python dependencies for the GUI
-source gui_app/venv_gui/bin/activate
-pip install -r gui_app/requirements_gui.txt
-deactivate
-
-# 3. Compile the C backend executables
-cd RA8D1_Simulation/
-make
-cd ..
-```
-
-### 3. Running the Application
-
-Once the setup is complete, use the automated startup script to launch both the C inference server and GUI application:
+1.  **First-Time Setup**: The GUI will automatically guide you through a one-time setup process that creates virtual environments, installs dependencies, and compiles the C code.
+2.  **Start the App**: Use the main shell script to launch both the C inference server and the Python GUI.
 
 ```bash
-# Run the complete application (starts C server + GUI)
+# This single command starts the C server and the GUI
 ./start_app.sh
 ```
 
-The script will:
-- Start the C inference server in the background
-- Wait for it to initialize and accept connections
-- Launch the GUI application
-- Automatically clean up both processes when you exit
+The script ensures the C server is running before launching the GUI and gracefully shuts down all processes on exit.
 
-**Alternative Manual Method:**
-If you prefer to run components separately:
+## Workflow
 
-```bash
-# Terminal 1: Start C inference server
-cd RA8D1_Simulation/
-./ra8d1_sim
-
-# Terminal 2: Start GUI (in project root)
-source gui_app/venv_gui/bin/activate
-python gui_app/main_app.py
-```
-
-## Application Workflow
-
-The GUI orchestrates the C backend as follows:
-
-1.  **Data Collection:** Use your camera to record hand gestures. This part is handled in Python and saves data to CSV files.
-2.  **Training:** When you click "Train Model," the GUI launches the compiled `./RA8D1_Simulation/train_c` executable as a subprocess. The C program handles data loading, model training, and saving the `c_model.bin` file.
-3.  **Inference:** The GUI starts the `./RA8D1_Simulation/ra8d1_sim` executable, which acts as a TCP server. The Python application then sends hand landmark data to the C server over a socket and receives predictions back for display.
+1.  **Data Collection**: Use the GUI to record temporal gestures (e.g., a 'wave' motion over 30 frames). Each recording is saved as a unique CSV file.
+2.  **Training**: On the 'Training' page, click **"Start Training"**. The GUI invokes the `train_c` executable, which loads all CSV sequences, trains the TCN model, and saves the `c_model.bin` file. You can monitor the progress via the **live log console**.
+3.  **Inference**: On the 'Inference' page, the GUI streams camera frames to the `ra8d1_sim` server, which returns real-time predictions for the recognized temporal gestures.
 
 ## File Structure
 
 ```
 .
-├── RA8D1_Simulation/
-│   ├── main.c                 # C code for the inference server (ra8d1_sim)
-│   ├── train_in_c.c           # C code for the training executable (train_c)
-│   ├── training_logic.h       # Header for C neural network structures and functions
-│   ├── training_logic.c       # C implementation of the neural network
-│   ├── mcu_constraints.h      # Defines MCU memory limits for compile-time checks
-│   └── Makefile               # Makefile to compile the C code
+├── RA8D1_Simulation/       # C Backend Source Code
+│   ├── train_in_c.c        # Main C code for training the TCN
+│   ├── training_logic.c    # TCN model implementation (layers, backprop)
+│   ├── main.c              # C code for the inference server
+│   └── Makefile            # Compiles the C executables
 │
-├── gui_app/
-│   ├── venv_gui/              # Virtual environment for the GUI
-│   ├── main_app.py            # Main entry point for the application
-│   ├── logic.py               # Core GUI logic, including socket communication
-│   └── ... (other UI files)
+├── gui_app/                # Python GUI Source Code
+│   ├── main_app.py         # Main application entry point
+│   ├── training_page.py    # UI and logic for the training page
+│   └── ...
 │
 └── models/
-    ├── data/                  # CSV files with hand landmark data
-    └── c_model.bin            # The trained model, saved in a binary format by the C code
+    ├── data/
+    │   ├── wave/           # Directory for 'wave' gesture sequences
+    │   │   ├── wave_1.csv
+    │   │   └── wave_2.csv
+    │   └── swipe_left/     # Directory for 'swipe_left' sequences
+    └── c_model.bin         # Final trained model in binary format
 ```

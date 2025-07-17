@@ -1,52 +1,43 @@
-# Final Project Report: Hand Gesture Recognition for Renesas RA8D1
+# Final Project Report: Temporal Gesture Recognition for Renesas RA8D1
 
 ## Project Status: 🎉 COMPLETE & FULLY FUNCTIONAL! 🎉
 
-**MAJOR UPDATE (July 16, 2025)**: This project has achieved its ultimate goal! The complete hand gesture recognition system is now fully operational with seamless Python GUI ↔ C backend integration. The initial vision of creating a C-based simulation for embedded MCU deployment has been successfully realized with a production-ready implementation.
+**Final Update (July 16, 2025)**: The project has been successfully transformed into a **temporal gesture recognition system**. The initial static gesture model was replaced with a **Temporal Convolutional Network (TCN)**, and the entire system—from data collection to C-based training and inference—is now stable and feature-complete.
 
 ---
 
 ## Summary of Accomplishments
 
-The project delivered a robust, end-to-end solution for building and testing a custom gesture recognition model. The final application provides a seamless experience, abstracting away the complexities of environment management and command-line tools.
+The project delivered a robust, end-to-end solution for building and testing a custom temporal gesture model for an embedded target. The final application provides a seamless experience for managing the entire ML workflow.
 
 ### Key Features Delivered:
 
-- **✅ Unified GUI Application:** A single, intuitive interface for the entire ML pipeline, built with PyQt6.
+-   **✅ Temporal Data Pipeline**: The GUI and C backend now support collecting, processing, and training on sequences of hand landmarks, enabling the recognition of dynamic gestures like "wave" and "swipe."
 
-- **✅ Automated Environment Setup:** The application guides the user through a one-time setup, verifying Python environments and dependencies to ensure the system runs correctly.
+-   **✅ Temporal Convolutional Network (TCN) in C**: A state-of-the-art TCN was implemented from scratch in pure C for the backend. This includes all necessary layers, activation functions (Leaky ReLU), and a stable backpropagation implementation.
 
-- **✅ Integrated Data Collection:** A dedicated page allows users to easily record new gesture data using their camera, with clear prompts and visual feedback.
+-   **✅ Unified GUI Application**: A single, intuitive PyQt6 interface for the entire ML pipeline.
 
-- **✅ Live-Updating Training Page:** The model training process is managed by the application and features a live-updating Matplotlib graph, providing real-time feedback on the model's accuracy and validation accuracy.
+-   **✅ Live Training Log Viewer**: The training page was enhanced with a real-time log console that streams output directly from the C training executable, providing immediate feedback on epoch loss and progress.
 
-- **✅ Real-Time Inference Engine:** A final inference page uses the trained ONNX model to provide live gesture predictions from the camera feed, completing the "data-to-deployment" loop.
+-   **✅ Real-Time Temporal Inference**: The inference page streams camera data to the C server, which now uses the trained TCN to recognize and display predictions for temporal gestures.
 
-- **✅ Responsive and Stable Architecture:** By leveraging `QThread` for all long-running processes (data collection, training, inference), the GUI remains responsive and provides a smooth user experience.
+-   **✅ Embedded-Ready C Backend**: The entire C backend operates with **100% static memory allocation** and includes compile-time checks to ensure the model's memory footprint does not exceed the 1MB SRAM limit of the Renesas RA8D1.
 
-- **✅ Dependency Conflict Resolution:** A stable two-environment setup (`venv_gui`, `venv_training`) was established to handle conflicting package requirements, particularly for TensorFlow on Apple Silicon.
+-   **✅ Automated Process Management**: A robust `start_app.sh` script orchestrates the C inference server and Python GUI, eliminating race conditions and ensuring a reliable, one-command startup.
 
-### C Backend Integration Achievement 🚀
+-   **✅ Rock-Solid Communication Protocol**: The entire server-client communication layer was overhauled to fix critical stability bugs, resulting in a crash-free experience. This included implementing a persistent TCP connection and a buffered reader to correctly handle data streams.
 
-**BREAKTHROUGH**: The project successfully achieved its original vision! Rather than abandoning the C-based simulation, we completed the full integration:
+### Core Technical Achievements
 
-- **✅ C Neural Network Implementation**: Complete neural network training and inference in pure C with static memory allocation
-- **✅ Embedded Memory Constraints**: Enforced 1MB SRAM limit matching Renesas RA8D1 specifications
-- **✅ Socket Communication**: Robust TCP communication between Python GUI and C inference server
-- **✅ Automated Process Management**: Intelligent startup script (`start_app.sh`) orchestrating both components
-- **✅ Production-Ready Architecture**: Clean separation of concerns with Python handling UI and C handling ML
+1.  **Successfully Ported to a Temporal Model**: The architecture was fundamentally refactored from a simple, static model to a complex TCN capable of understanding time-series data.
+2.  **Stabilized C-Based Training**: Overcame the critical `NaN` loss bug by identifying the "Dying ReLU" problem and switching to Leaky ReLU, resulting in a stable and effective training process in C.
+3.  **Rock-Solid GUI-Backend Integration**: Overcame critical stability bugs by re-architecting the server-client communication protocol. This involved fixing connection overload, race conditions, and data corruption issues, resulting in a truly robust and seamless user experience.
 
-### Final Integration Breakthrough
-
-The last major challenge was resolved through:
-1. **Process Orchestration**: Created automated startup script managing C server and GUI lifecycle
-2. **Connection Reliability**: Eliminated race conditions and timing issues
-3. **Robust Communication**: Established stable Python GUI ↔ C backend socket communication
-
-This represents the **complete realization** of the original embedded ML simulation concept - a high-fidelity representation of how neural networks would operate on bare-metal embedded systems, wrapped in an intuitive GUI interface.
+This represents the **complete realization** of the original embedded ML simulation concept, but elevated to handle the more complex and powerful domain of temporal gesture recognition.
 
 ---
 
 ## Final State
 
-The project is considered feature-complete. The application is stable, the documentation is updated, and the repository contains all the necessary code and instructions to run the tool successfully.
+The project is feature-complete. The application is stable, the documentation has been updated to reflect the new temporal architecture, and the repository contains all necessary code and instructions to run the tool successfully.

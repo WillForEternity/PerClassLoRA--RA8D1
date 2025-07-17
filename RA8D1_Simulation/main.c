@@ -9,31 +9,31 @@
 #include "mcu_constraints.h"
 
 #define SERVER_PORT 65432
-#define INPUT_BUFFER_SIZE (INPUT_SIZE) // Use macro from our header
-#define RECV_BUFFER_SIZE 1024
+#define INPUT_BUFFER_SIZE (SEQUENCE_LENGTH * INPUT_SIZE)
+#define RECV_BUFFER_SIZE (INPUT_BUFFER_SIZE * 12) // Generous buffer for string representation
 
 // --- Global Variables ---
 static float g_hand_landmark_data[INPUT_BUFFER_SIZE];
 static Model g_model;
-const char* g_gesture_labels[NUM_CLASSES] = {"fist", "palm", "pointing"};
+const char* g_gesture_labels[NUM_CLASSES] = {"wave", "swipe_left", "swipe_right"};
 
 // --- Helper Functions ---
 
+// Parses a complete sequence of landmark data from the buffer
 void parse_data(char* buffer) {
-    char* token = strtok(buffer, ",");
+    char* saveptr; // For strtok_r
+    char* token = strtok_r(buffer, ",\n", &saveptr);
     int i = 0;
     while (token != NULL && i < INPUT_BUFFER_SIZE) {
         g_hand_landmark_data[i++] = atof(token);
-        token = strtok(NULL, ",");
+        token = strtok_r(NULL, ",\n", &saveptr);
     }
 }
 
 void run_inference(int client_socket) {
-
-    // Use our forward_pass function
+    // The entire sequence is now in g_hand_landmark_data
     forward_pass(&g_model, g_hand_landmark_data, 0, 0); // epoch and sample_idx are not used in inference
 
-    // Get the output from our model's output layer
     float* output_data = g_model.output_layer.output;
 
     int max_index = 0;
@@ -81,26 +81,37 @@ int main() {
     if (listen(server_fd, 3) < 0) { perror("listen"); exit(EXIT_FAILURE); }
     
     printf("Server listening on port %d\n", SERVER_PORT);
-    while(1) {
-        printf("Waiting for a client connection...\n");
+    while(1) { // Outer loop to accept new connections
+        printf("[SERVER] Waiting for a new client connection...\n");
         if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0) { 
             perror("accept"); 
-            continue;
+            continue; // Go back to waiting for a connection
         }
-        printf("Client connected. Waiting for data...\n");
+        printf("[SERVER] Client connected on socket %d. Entering persistent handling loop.\n", new_socket);
 
-        while (1) {
+        // Inner loop to handle one client persistently
+        while(1) {
             ssize_t bytes_received = read(new_socket, buffer, RECV_BUFFER_SIZE - 1);
+            
             if (bytes_received > 0) {
                 buffer[bytes_received] = '\0';
+                // No need to print data received every time, it's too noisy
+                // printf("[HANDLER] Received %zd bytes. Parsing and running inference...\n", bytes_received);
                 parse_data(buffer);
                 run_inference(new_socket);
+                // printf("[HANDLER] Inference complete, response sent.\n");
             } else {
-                printf("Client disconnected.\n");
-                close(new_socket);
-                break;
+                if (bytes_received == 0) {
+                    printf("[HANDLER] Client on socket %d disconnected gracefully.\n", new_socket);
+                } else {
+                    perror("[HANDLER] read failed");
+                }
+                break; // Exit inner loop to close socket
             }
         }
+
+        printf("[SERVER] Closing socket %d and waiting for new connection.\n", new_socket);
+        close(new_socket);
     }
     close(server_fd);
     // free_model is no longer needed with static allocation.

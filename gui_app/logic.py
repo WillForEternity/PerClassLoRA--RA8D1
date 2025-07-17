@@ -94,124 +94,184 @@ class HandTracker:
             min_tracking_confidence=0.5
         )
         self.mp_drawing = mp.solutions.drawing_utils
-        self.KEY_POINTS_INDICES = [0, 4, 8, 12, 16, 20]  # Wrist, Thumb, Index, Middle, Ring, Pinky tips
+
         self.DATA_DIR = os.path.join(PROJECT_ROOT, 'models', 'data')
         os.makedirs(self.DATA_DIR, exist_ok=True)
 
+    def _normalize_landmarks(self, landmarks_np):
+        """Normalizes a numpy array of landmarks.
+        Helper function to be used by both inference and data collection.
+        """
+        # 1. Normalize by subtracting the wrist (landmark 0) position
+        origin = landmarks_np[0].copy()
+        relative_landmarks = landmarks_np - origin
+
+        # 2. Calculate scale factor (average distance from origin)
+        distances = np.linalg.norm(relative_landmarks, axis=1)
+        scale_factor = np.mean(distances)
+        if scale_factor < 1e-6: # Avoid division by zero
+            scale_factor = 1
+
+        # 3. Scale the data and flatten for saving/inference
+        normalized_landmarks = relative_landmarks / scale_factor
+        return normalized_landmarks.flatten().tolist()
+
     def get_landmark_data(self, hand_landmarks):
-        """Extracts and flattens the coordinates for the key landmarks."""
-        landmark_data = []
-        for i in self.KEY_POINTS_INDICES:
-            lm = hand_landmarks.landmark[i]
-            landmark_data.extend([lm.x, lm.y, lm.z])
-        return landmark_data
+        """Extracts, normalizes, and flattens all 21 landmark coordinates for inference."""
+        if not hand_landmarks:
+            return None
+        
+        # Extract all 21 landmarks into a numpy array
+        landmarks_np = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark])
+        return self._normalize_landmarks(landmarks_np)
 
     def process_frame(self, frame):
-        """Processes a single video frame to find hand landmarks."""
+        """Processes a single video frame, finds, and draws hand landmarks."""
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.hands.process(frame_rgb)
-        return results
+
+        hand_landmarks = None
+        if results.multi_hand_landmarks:
+            # Get the first detected hand
+            hand_landmarks = results.multi_hand_landmarks[0]
+            # Draw the landmarks on the original frame
+            self.draw_landmarks(frame, hand_landmarks)
+
+        return hand_landmarks, frame # Return landmarks and the (possibly annotated) frame
 
     def draw_landmarks(self, frame, hand_landmarks):
         """Draws landmarks and connections on the frame."""
         self.mp_drawing.draw_landmarks(frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
 
     def save_data(self, gesture, data):
-        """Appends the collected data to the corresponding CSV file."""
-        file_path = os.path.join(self.DATA_DIR, f"{gesture}.csv")
-        with open(file_path, 'a', newline='') as f:
+        """Saves a gesture sequence to a new CSV file."""
+        gesture_dir = os.path.join(self.DATA_DIR, gesture)
+        os.makedirs(gesture_dir, exist_ok=True)
+        
+        # Find the next available file number
+        existing_files = os.listdir(gesture_dir)
+        next_file_num = 1
+        while f"{gesture}_{next_file_num}.csv" in existing_files:
+            next_file_num += 1
+
+        file_path = os.path.join(gesture_dir, f"{gesture}_{next_file_num}.csv")
+        
+        with open(file_path, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerows(data)
-        return len(data)
+            for frame_landmarks_flat in data:
+                if not frame_landmarks_flat: continue # Skip empty frames
+
+                # Reshape the flat list into a (21, 3) numpy array
+                landmarks_np = np.array(frame_landmarks_flat).reshape(-1, 3)
+                # Use the centralized normalization method
+                row = self._normalize_landmarks(landmarks_np)
+
+                writer.writerow(row)
+        
+        # Return 1 to indicate one sequence was saved
+        return 1
 
 
 # --- Gesture Prediction ---
 
 class GesturePredictor:
     """
-    Manages the C-based inference server process and communicates with it
-    over a socket to get gesture predictions.
+    Manages communication with the C-based inference server to get temporal
+    gesture predictions from a sequence of landmark data using a persistent connection.
     """
     def __init__(self):
-        self.c_server_process = None  # Not used anymore - server is started externally
-        self.client_socket = None
         self.host = 'localhost'
         self.port = 65432
-        self.classes = ['fist', 'palm', 'pointing'] # Should match C model output
-        # Connect to already-running C server (started by start_app.sh)
-        self._connect_to_server()
+        self.client_socket = None
+        self.rfile = None # For buffered reading
+        self.classes = ['wave', 'swipe_left', 'swipe_right', 'Gesture Not Recognized']
+        self.confidence_threshold = 0.70 # 70% confidence required
+        self.sequence_length = 100 # Must match SEQUENCE_LENGTH in C backend
+        self.num_features = 21 * 3
+        self.sequence_buffer = [[0.0] * self.num_features for _ in range(self.sequence_length)]
+        self._connect() # Establish initial connection
 
-    def _start_c_server(self):
-        """Launches the C inference server as a background process."""
-        c_executable_dir = os.path.join(PROJECT_ROOT, "RA8D1_Simulation")
-        c_executable_path = os.path.join(c_executable_dir, "ra8d1_sim")
-
-        if not os.path.exists(c_executable_path):
-            raise FileNotFoundError(f"C inference server not found at {c_executable_path}")
-
-        print("Starting C inference server...")
-        self.c_server_process = subprocess.Popen(
-            [c_executable_path],
-            cwd=c_executable_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        print("C inference server process launched.")
-
-    def _connect_to_server(self):
-        """Connects to the running C inference server socket with a retry mechanism."""
-        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        retries = 10
-        for i in range(retries):
-            try:
-                self.client_socket.connect((self.host, self.port))
-                print(f"Successfully connected to C inference server on attempt {i+1}.")
-                return # Exit the method on successful connection
-            except (ConnectionRefusedError, OSError):
-                if i < retries - 1:
-                    time.sleep(0.2) # Wait before retrying
-                else:
-                    print("[ERROR] Failed to connect to the C inference server after multiple attempts.")
-                    self.cleanup()
-                    raise RuntimeError("Could not connect to C inference server.")
+    def _connect(self):
+        """Establishes or re-establishes the persistent connection to the C server."""
+        self.cleanup(is_reconnecting=True)
+        try:
+            print("[GesturePredictor] Attempting to connect to C inference server...")
+            self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.client_socket.connect((self.host, self.port))
+            self.rfile = self.client_socket.makefile('r') # Create buffered reader
+            print("[GesturePredictor] Connection to C server successful.")
+        except ConnectionRefusedError:
+            print("[GesturePredictor] Connection refused. Is the C server running?")
+            self.client_socket = None
+            self.rfile = None
 
     def predict(self, landmark_data):
         """
-        Sends landmark data to the C server and returns the prediction.
+        Buffers landmark data, sends it over the persistent connection for inference,
+        and handles reconnections if necessary.
         """
-        if not self.client_socket:
-            return "Error", 0.0
+        if landmark_data is None:
+            return "No Hand Present", 0.0
+
+        self.sequence_buffer.append(landmark_data)
+        self.sequence_buffer.pop(0)
+
+        if not self.client_socket or not self.rfile:
+            self._connect()
+            if not self.client_socket:
+                return "Connecting...", 0.0
 
         try:
-            data_string = ",".join(map(str, landmark_data)) + "\n"
-            self.client_socket.sendall(data_string.encode('utf-8'))
-            response = self.client_socket.recv(1024).decode('utf-8').strip()
-            
-            if not response:
-                return "No response", 0.0
+            # 1. Format data
+            flat_sequence = [item for sublist in self.sequence_buffer for item in sublist]
+            data_string = ",".join(map(str, flat_sequence)) + "\n"
 
+            # 2. Send data and get response over the persistent connection
+            self.client_socket.sendall(data_string.encode('utf-8'))
+            response = self.rfile.readline().strip() # Read a single, complete line
+
+            # 3. Parse and return the prediction
+            if not response:
+                # This can happen if the server closes the connection cleanly
+                print("[GesturePredictor] Empty response from server. Reconnecting...")
+                self._connect()
+                return "Connecting...", 0.0
+            
             parts = response.split(',')
             prediction_index = int(parts[0])
             confidence = float(parts[1])
-            predicted_gesture = self.classes[prediction_index]
-            
-            return predicted_gesture, confidence
+
+            if confidence < self.confidence_threshold:
+                return self.classes[-1], confidence
+            else:
+                return self.classes[prediction_index], confidence
 
         except (BrokenPipeError, ConnectionResetError) as e:
-            print(f"Connection to C server lost: {e}")
-            self.cleanup()
-            return "Connection Lost", 0.0
+            print(f"[GesturePredictor] Connection lost: {e}. Reconnecting...")
+            self._connect()
+            return "Connecting...", 0.0
         except Exception as e:
-            print(f"An error occurred during prediction: {e}")
+            print(f"[GesturePredictor] An error occurred during prediction: {e}")
+            # Don't reconnect on general errors, could be a data issue
             return "Error", 0.0
 
-    def cleanup(self):
-        """Gracefully shuts down the socket connection."""
-        print("Cleaning up GesturePredictor...")
+    def cleanup(self, is_reconnecting=False):
+        """Cleans up resources for the GesturePredictor, closing the socket."""
+        if not is_reconnecting:
+            print("Cleaning up GesturePredictor...")
+        
+        if self.rfile:
+            try: self.rfile.close()
+            except Exception as e: print(f"Error closing reader file: {e}")
+        
         if self.client_socket:
-            self.client_socket.close()
-            self.client_socket = None
-            print("Socket closed.")
-        # C server process is managed externally by start_app.sh
-        print("GesturePredictor cleanup complete.")
+            try: self.client_socket.close()
+            except Exception as e: print(f"Error closing client socket: {e}")
+
+        self.rfile = None
+        self.client_socket = None
+        
+        if not is_reconnecting:
+            self.sequence_buffer.clear()
+            print("GesturePredictor cleanup complete.")
 

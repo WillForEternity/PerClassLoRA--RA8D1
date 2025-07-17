@@ -24,6 +24,11 @@ $(SIM_TARGET): main.c training_logic.c
 $(TRAIN_TARGET): train_in_c.c training_logic.c
 	$(CC) $(CFLAGS) -o $@ $^ $(TRAIN_LDFLAGS)
 
+# Phony targets are not files
+.PHONY: all clean
+
 # Rule to clean build artifacts
 clean:
-	rm -f $(SIM_TARGET) $(TRAIN_TARGET)
+	@echo "Cleaning up build artifacts..."
+	rm -rf *.dSYM
+	rm -f $(SIM_TARGET) $(TRAIN_TARGET) ra8d1_sim* train_c* simulation
