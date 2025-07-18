@@ -62,6 +62,24 @@ make clean
 
 The system employs a hybrid architecture, leveraging a Python-based GUI for user interaction and a high-performance C backend for model execution.
 
+```
+┌───────────────────┐      Persistent TCP     ┌───────────────────┐
+│   Python Frontend │ ◄─────────────────────► │    C Backend      │
+│ (PyQt6 GUI)       │         Socket          │ (Inference Engine)│
+├───────────────────┤                         ├───────────────────┤
+│ - Data Collection │                         │ - TCN Forward Pass│
+│ - Training Control│                         │ - Model Loading   │
+│ - Live Inference  │                         │ - Diagnostics     │
+│ - MediaPipe       │                         │ - Static Memory   │
+└───────────────────┘                         └───────────────────┘
+         │                                             ▲
+         ▼                                             │
+┌───────────────────┐       C Training        ┌───────────────────┐
+│  Training Data    │        Process          │   Binary Model    │
+│   (CSV Files)     │ ──────────────────────► |  (c_model.bin)    │
+└───────────────────┘                         └───────────────────┘
+```
+
 ### Components
 
 | Component | Technology | Role |
