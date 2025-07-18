@@ -26,7 +26,7 @@ class CameraWorker(QThread):
         cap = cv2.VideoCapture(0)
         collected_data = []
         last_capture_time = 0
-        capture_interval = 0.1  # 10 samples per second
+        capture_interval = 0.0  # Capture as fast as possible
 
         while self._running:
             ret, frame = cap.read()

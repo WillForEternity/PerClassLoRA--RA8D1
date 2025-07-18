@@ -16,13 +16,22 @@ TRAIN_LDFLAGS=-lm
 # Default target: build both applications
 all: $(SIM_TARGET) $(TRAIN_TARGET)
 
-# Rule to build the inference simulator
-$(SIM_TARGET): main.c training_logic.c
-	$(CC) $(CFLAGS) -o $@ $^ $(SIM_LDFLAGS)
+# Dependencies
+# Both targets depend on the logic source and header
+$(TRAIN_TARGET): train_in_c.o $(LOGIC_SRC)
+$(SIM_TARGET): main.o $(LOGIC_SRC)
 
-# Rule to build the C-based trainer
-$(TRAIN_TARGET): train_in_c.c training_logic.c
-	$(CC) $(CFLAGS) -o $@ $^ $(TRAIN_LDFLAGS)
+# Rule to build the executables
+$(TRAIN_TARGET): train_in_c.o training_logic.o
+	$(CC) $(CFLAGS) -o $@ $^ -lm
+
+$(SIM_TARGET): main.o training_logic.o
+	$(CC) $(CFLAGS) -o $@ $^ -L/opt/homebrew/opt/onnxruntime/lib -lonnxruntime
+
+# Generic rule for object files
+# This ensures .o files are rebuilt if the header changes
+%.o: %.c $(LOGIC_HDR)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Phony targets are not files
 .PHONY: all clean

@@ -10,63 +10,34 @@
 
 #define SERVER_PORT 65432
 #define INPUT_BUFFER_SIZE (SEQUENCE_LENGTH * INPUT_SIZE)
-#define RECV_BUFFER_SIZE (INPUT_BUFFER_SIZE * 12) // Generous buffer for string representation
 
 // --- Global Variables ---
-static float g_hand_landmark_data[INPUT_BUFFER_SIZE];
-static Model g_model;
+InferenceModel g_model;
+float g_hand_landmark_data[SEQUENCE_LENGTH * INPUT_SIZE]; // Global buffer for inference data
 const char* g_gesture_labels[NUM_CLASSES] = {"wave", "swipe_left", "swipe_right"};
-
-// --- Helper Functions ---
-
-// Parses a complete sequence of landmark data from the buffer
-void parse_data(char* buffer) {
-    char* saveptr; // For strtok_r
-    char* token = strtok_r(buffer, ",\n", &saveptr);
-    int i = 0;
-    while (token != NULL && i < INPUT_BUFFER_SIZE) {
-        g_hand_landmark_data[i++] = atof(token);
-        token = strtok_r(NULL, ",\n", &saveptr);
-    }
-}
-
-void run_inference(int client_socket) {
-    // The entire sequence is now in g_hand_landmark_data
-    forward_pass(&g_model, g_hand_landmark_data, 0, 0); // epoch and sample_idx are not used in inference
-
-    float* output_data = g_model.output_layer.output;
-
-    int max_index = 0;
-    for (int i = 1; i < NUM_CLASSES; i++) {
-        if (output_data[i] > output_data[max_index]) {
-            max_index = i;
-        }
-    }
-    float confidence = output_data[max_index];
-
-    // Send the result back to the client
-    char response_buffer[64];
-    snprintf(response_buffer, sizeof(response_buffer), "%d,%.4f\n", max_index, confidence);
-    send(client_socket, response_buffer, strlen(response_buffer), 0);
-}
 
 // --- Main Execution ---
 int main() {
     printf("Initializing C-based model...\n");
-    // init_model(&g_model); // No longer needed for static model, weights are loaded or random
 
     const char* model_path = "../models/c_model.bin";
-    if (load_model(&g_model, model_path) != 0) {
-        fprintf(stderr, "Failed to load C model. Using random weights. Consider training first.\n");
-        // If model fails to load, we can proceed with a randomly initialized model for testing.
-        init_model(&g_model);
+    if (!load_inference_model(&g_model, model_path)) {
+        fprintf(stderr, "Error reading model file\n");
+        // We cannot proceed without a valid model.
+        return 1; 
     }
+    
+    // Diagnostic: Print some model weights to verify loading
+    printf("[DIAGNOSTIC] Model loaded successfully. Sample weights:\n");
+    printf("[DIAGNOSTIC] TCN weight[0]: %.6f\n", g_model.tcn_block.weights[0]);
+    printf("[DIAGNOSTIC] TCN bias[0]: %.6f\n", g_model.tcn_block.biases[0]);
+    printf("[DIAGNOSTIC] Output weight[0]: %.6f\n", g_model.output_layer.weights[0]);
+    printf("[DIAGNOSTIC] Output bias[0]: %.6f\n", g_model.output_layer.biases[0]);
 
     int server_fd, new_socket;
     struct sockaddr_in address;
     int opt = 1;
     int addrlen = sizeof(address);
-    char buffer[RECV_BUFFER_SIZE] = {0};
 
     printf("RA8D1 C-Model Simulation: Socket Server Starting...\n");
 
@@ -89,28 +60,83 @@ int main() {
         }
         printf("[SERVER] Client connected on socket %d. Entering persistent handling loop.\n", new_socket);
 
-        // Inner loop to handle one client persistently
+        // Persistent loop to handle a single client connection
         while(1) {
-            ssize_t bytes_received = read(new_socket, buffer, RECV_BUFFER_SIZE - 1);
-            
-            if (bytes_received > 0) {
-                buffer[bytes_received] = '\0';
-                // No need to print data received every time, it's too noisy
-                // printf("[HANDLER] Received %zd bytes. Parsing and running inference...\n", bytes_received);
-                parse_data(buffer);
-                run_inference(new_socket);
-                // printf("[HANDLER] Inference complete, response sent.\n");
-            } else {
-                if (bytes_received == 0) {
-                    printf("[HANDLER] Client on socket %d disconnected gracefully.\n", new_socket);
-                } else {
-                    perror("[HANDLER] read failed");
-                }
-                break; // Exit inner loop to close socket
+            uint32_t msg_len_net;
+            ssize_t header_read = read(new_socket, &msg_len_net, sizeof(uint32_t));
+
+            if (header_read <= 0) {
+                if (header_read < 0) perror("[SERVER] Read header failed");
+                printf("[SERVER] Client disconnected.\n");
+                break; // Break inner loop to close socket
             }
+
+            uint32_t msg_len = ntohl(msg_len_net);
+            size_t expected_len = sizeof(g_hand_landmark_data);
+            if (msg_len != expected_len) {
+                fprintf(stderr, "[SERVER] Invalid message length: %u, expected %zu\n", msg_len, expected_len);
+                continue; // Wait for next message
+            }
+
+            // Read data into a temporary buffer first
+            char temp_buffer[sizeof(g_hand_landmark_data)];
+            ssize_t total_read = 0;
+            while (total_read < msg_len) {
+                ssize_t payload_read = read(new_socket, temp_buffer + total_read, msg_len - total_read);
+                if (payload_read <= 0) {
+                    if (payload_read < 0) perror("[SERVER] Read payload failed");
+                    printf("[SERVER] Client disconnected during payload read.\n");
+                    goto close_client_socket; // Use goto for shared cleanup
+                }
+                total_read += payload_read;
+            }
+            
+            // Convert from network byte order to host byte order
+            uint32_t* temp_uint32 = (uint32_t*)temp_buffer;
+            for (int i = 0; i < (SEQUENCE_LENGTH * INPUT_SIZE); i++) {
+                uint32_t net_val = temp_uint32[i];
+                uint32_t host_val = ntohl(net_val);
+                g_hand_landmark_data[i] = *(float*)&host_val;
+            }
+
+            // Diagnostic: Print sample input data
+            printf("[DIAGNOSTIC] Received data. First 10 values: ");
+            for (int i = 0; i < 10; ++i) {
+                printf("%.3f ", g_hand_landmark_data[i]);
+            }
+            printf("\n");
+            
+            // Run inference
+            float prediction_output[NUM_CLASSES];
+            forward_pass_inference(&g_model, (float*)g_hand_landmark_data, prediction_output);
+
+            // Diagnostic: Print raw inference output
+            printf("[DIAGNOSTIC] Raw inference output: ");
+            for (int i = 0; i < NUM_CLASSES; ++i) {
+                printf("class_%d=%.6f ", i, prediction_output[i]);
+            }
+            printf("\n");
+
+            // Find the prediction with the highest confidence
+            int prediction = 0;
+            float confidence = 0.0f;
+            for (int i = 0; i < NUM_CLASSES; ++i) {
+                if (prediction_output[i] > confidence) {
+                    confidence = prediction_output[i];
+                    prediction = i;
+                }
+            }
+
+            printf("[DIAGNOSTIC] Final prediction: class_%d with confidence %.6f\n", prediction, confidence);
+
+            // --- Send Response --- 
+            char send_buffer[64];
+            snprintf(send_buffer, sizeof(send_buffer), "%d,%.4f", prediction, confidence);
+            write(new_socket, send_buffer, strlen(send_buffer));
         }
 
-        printf("[SERVER] Closing socket %d and waiting for new connection.\n", new_socket);
+    close_client_socket:
+        printf("[SERVER] Closing client socket %d.\n", new_socket);
         close(new_socket);
     }
     close(server_fd);

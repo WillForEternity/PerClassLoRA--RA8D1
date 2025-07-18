@@ -47,20 +47,13 @@ class InferenceWorker(QThread):
 
 class InferencePage(QWidget):
     set_navigation_enabled = pyqtSignal(bool)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.hand_tracker = HandTracker()
-        self.worker = None # Initialize worker to None
-        self.gesture_predictor = None # Will be initialized when inference starts
+        self.worker = None
+        self.gesture_predictor = None
         self.setup_ui()
-        
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        c_model_path = os.path.join(project_root, 'models', 'c_model.bin')
-
-        if not os.path.exists(c_model_path):
-            self.prediction_label.setText("Error: c_model.bin not found! Please train the model first.")
-            self.start_button.setEnabled(False)
-            return
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
@@ -96,26 +89,54 @@ class InferencePage(QWidget):
         content_layout.addLayout(info_layout)
         layout.addLayout(content_layout)
 
-    def toggle_inference(self):
+    def _start_inference(self):
+        # 1. Check for model file first
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        c_model_path = os.path.join(project_root, 'models', 'c_model.bin')
+        if not os.path.exists(c_model_path):
+            self.prediction_label.setText("Error: c_model.bin not found!")
+            self.start_button.setEnabled(False)
+            return
+
+        try:
+            # 2. Create predictor and worker in correct order
+            self.gesture_predictor = GesturePredictor()
+            self.worker = InferenceWorker(self.hand_tracker, self.gesture_predictor)
+
+            # 3. Connect signals
+            self.worker.new_frame.connect(self.update_video_feed)
+            self.worker.new_prediction.connect(self.update_prediction)
+
+            # 4. Start worker and update UI
+            self.worker.start()
+            self.start_button.setText("Stop Inference")
+            self.set_navigation_enabled.emit(False)
+
+        except Exception as e:
+            self.prediction_label.setText(f"Error: {e}")
+            self.start_button.setEnabled(False)
+
+    def _stop_inference(self):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
-            self.start_button.setText("Start Inference")
-            self.set_navigation_enabled.emit(True)
-            if self.gesture_predictor:
-                self.gesture_predictor.cleanup()
-                self.gesture_predictor = None
+        
+        if self.gesture_predictor:
+            self.gesture_predictor.cleanup()
+
+        self.worker = None
+        self.gesture_predictor = None
+
+        self.start_button.setText("Start Inference")
+        self.set_navigation_enabled.emit(True)
+        self.video_feed.setText("Camera Stopped")
+        self.prediction_label.setText("Prediction: --")
+        self.confidence_label.setText("Confidence: --")
+
+    def toggle_inference(self):
+        if self.worker and self.worker.isRunning():
+            self._stop_inference()
         else:
-            try:
-                self.gesture_predictor = GesturePredictor()
-                self.worker = InferenceWorker(self.hand_tracker, self.gesture_predictor)
-                self.worker.new_frame.connect(self.update_video_feed)
-                self.worker.new_prediction.connect(self.update_prediction)
-                self.worker.start()
-                self.start_button.setText("Stop Inference")
-                self.set_navigation_enabled.emit(False)
-            except Exception as e:
-                self.prediction_label.setText(f"Error: {e}")
-                self.start_button.setEnabled(False)
+            self._start_inference()
 
     @pyqtSlot(np.ndarray)
     def update_video_feed(self, frame):
@@ -126,18 +147,24 @@ class InferencePage(QWidget):
 
     @pyqtSlot(str, float)
     def update_prediction(self, gesture, confidence):
-        self.prediction_label.setText(f"Prediction: {gesture.capitalize()}")
-        self.confidence_label.setText(f"Confidence: {confidence:.2f}")
+        if gesture == "No Hand Present":
+            self.prediction_label.setText("Prediction: No Hand Detected")
+            self.confidence_label.setText("Confidence: --")
+        elif gesture == "Collecting data...":
+            self.prediction_label.setText("Status: Collecting Frames...")
+            self.confidence_label.setText("Confidence: --")
+        else:
+            self.prediction_label.setText(f"Prediction: {gesture.capitalize()}")
+            self.confidence_label.setText(f"Confidence: {confidence:.2f}")
 
     def showEvent(self, event):
         super().showEvent(event)
+        # Automatically start inference when the page is shown
         if not self.worker or not self.worker.isRunning():
-            self.toggle_inference()
+            self._start_inference()
 
     def hideEvent(self, event):
         super().hideEvent(event)
+        # Automatically stop inference when the page is hidden
         if self.worker and self.worker.isRunning():
-            self.worker.stop()
-            if self.gesture_predictor:
-                self.gesture_predictor.cleanup()
-                self.gesture_predictor = None
+            self._stop_inference()

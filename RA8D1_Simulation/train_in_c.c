@@ -9,86 +9,128 @@ const char* GESTURES[] = {"wave", "swipe_left", "swipe_right"};
 const int NUM_GESTURES = sizeof(GESTURES) / sizeof(GESTURES[0]);
 
 // --- Training Hyperparameters ---
-#define NUM_EPOCHS 2000
-#define LEARNING_RATE 0.01f
+#define NUM_EPOCHS 500
+#define LEARNING_RATE 0.001f
+#define BETA1 0.9f
+#define BETA2 0.999f
+#define EPSILON 1e-8f
 
-// --- Helper Function to calculate loss ---
+#define TRAIN_SPLIT 0.8f
+
+// --- Helper Functions to calculate loss and accuracy ---
 float calculate_loss(const float* predictions, int target_label) {
-    // Sparse Categorical Cross-Entropy Loss
-    // Ensure the prediction for the target class is not zero to avoid log(0)
     float predicted_prob = predictions[target_label];
-    if (predicted_prob < 1e-9) {
-        predicted_prob = 1e-9;
-    }
+    if (predicted_prob < 1e-9) predicted_prob = 1e-9;
     return -logf(predicted_prob);
+}
+
+float calculate_accuracy(const float* predictions, int target_label) {
+    int max_index = 0;
+    for (int i = 1; i < NUM_CLASSES; ++i) {
+        if (predictions[i] > predictions[max_index]) {
+            max_index = i;
+        }
+    }
+    return (max_index == target_label) ? 1.0f : 0.0f;
 }
 
 int main() {
     printf("--- C-Based Model Training ---\n"); fflush(stdout);
 
     // 1. Load Data
-    printf("\n1. Loading Data from '%s'...\n", DATA_DIR); fflush(stdout);
     float* all_data = NULL;
     int* all_labels = NULL;
     int num_sequences = 0;
-
     if (load_temporal_data(DATA_DIR, GESTURES, NUM_GESTURES, &all_data, &all_labels, &num_sequences) != 0) {
-        fprintf(stderr, "Failed to load temporal data. Exiting.\n");
-        return 1;
+        fprintf(stderr, "Failed to load data. Exiting.\n"); return 1;
     }
+    printf("Loaded %d total sequences.\n", num_sequences);
 
-    printf("Loaded %d sequences.\n", num_sequences); fflush(stdout);
+    // 2. Split data into training and validation sets
+    int num_train = 0, num_val = 0;
+    int* train_indices = (int*)malloc(num_sequences * sizeof(int));
+    int* val_indices = (int*)malloc(num_sequences * sizeof(int));
+    split_data(num_sequences, TRAIN_SPLIT, train_indices, &num_train, val_indices, &num_val);
+    printf("Split data into %d training and %d validation samples.\n", num_train, num_val);
 
-    // 2. Initialize Model
-    printf("\n2. Initializing Neural Network Model...\n"); fflush(stdout);
+    // Initialize model
     Model model;
     init_model(&model);
+    
+    // Diagnostic: Print output layer weights after initialization
+    printf("[TRAINING DIAGNOSTIC] Output layer weights after initialization:\n");
+    for (int i = 0; i < 5; ++i) {
+        printf("  weight[%d]: %.6f\n", i, model.output_layer.weights[i]);
+    }
+    printf("  bias[0]: %.6f\n", model.output_layer.biases[0]);
 
-    // 3. Training Loop
-    printf("\n3. Starting Training Loop...\n"); fflush(stdout);
-    printf("Hyperparameters: Epochs=%d, Learning Rate=%.6f\n", NUM_EPOCHS, LEARNING_RATE); fflush(stdout);
+    // 4. Training Loop
+    printf("\n--- Starting Training ---\n");
+    printf("Hyperparameters: Epochs=%d, LR=%.4f, Train/Val Split=%.0f/%.0f\n", NUM_EPOCHS, LEARNING_RATE, TRAIN_SPLIT*100, (1-TRAIN_SPLIT)*100); 
+    fflush(stdout);
 
+    int timestep = 0;
     for (int epoch = 0; epoch < NUM_EPOCHS; ++epoch) {
-        shuffle_data(all_data, all_labels, num_sequences);
-        float total_loss = 0.0f;
+        
+        // --- Training Phase ---
+        float total_train_loss = 0.0f;
+        for (int i = 0; i < num_train; ++i) {
+            timestep++;
+            int sample_idx = train_indices[i];
+            float* input_sequence = &all_data[sample_idx * SEQUENCE_LENGTH * INPUT_SIZE];
+            int target_label = all_labels[sample_idx];
 
-        for (int i = 0; i < num_sequences; ++i) {
-            // Each 'sample' is now a sequence of frames
-            float* input_sequence = &all_data[i * SEQUENCE_LENGTH * INPUT_SIZE];
-            int* target_label = &all_labels[i];
-
-            // --- Core Training Step ---
-            // a) Forward pass to get predictions
+            // Forward pass to calculate outputs and loss
             forward_pass(&model, input_sequence, epoch, i);
+            total_train_loss += calculate_loss(model.output_layer.output, target_label);
 
-            // b) Calculate loss
-            float loss = calculate_loss(model.output_layer.output, *target_label);
-            total_loss += loss;
-
-            // c) Backward pass to compute gradients
-            backward_pass(&model, input_sequence, target_label, 1, epoch, i);
-
-            // d) Update weights with the optimizer
-            update_weights(&model, LEARNING_RATE);
+            // Backward pass to calculate gradients and update weights
+            backward_pass(&model, input_sequence, &target_label, 1, epoch, i);
+            update_weights(&model, LEARNING_RATE, BETA1, BETA2, EPSILON, timestep);
         }
 
-        // Print average loss for the epoch, but not for every single one.
+        // --- Validation Phase ---
+        float total_val_loss = 0.0f;
+        float total_val_acc = 0.0f;
+        for (int i = 0; i < num_val; ++i) {
+            int sample_idx = val_indices[i];
+            float* input_sequence = &all_data[sample_idx * SEQUENCE_LENGTH * INPUT_SIZE];
+            int target_label = all_labels[sample_idx];
+
+            forward_pass(&model, input_sequence, epoch, i);
+            total_val_loss += calculate_loss(model.output_layer.output, target_label);
+            total_val_acc += calculate_accuracy(model.output_layer.output, target_label);
+        }
+
         if ((epoch + 1) % 10 == 0) {
-             printf("Epoch %d/%d, Average Loss: %f\n", epoch + 1, NUM_EPOCHS, total_loss / num_sequences); fflush(stdout);
+            printf("Epoch %4d/%d | Train Loss: %.4f | Val Loss: %.4f | Val Acc: %.2f%%\n", 
+                   epoch + 1, NUM_EPOCHS, 
+                   total_train_loss / num_train, 
+                   total_val_loss / num_val, 
+                   (total_val_acc / num_val) * 100.0f);
+            fflush(stdout);
         }
     }
 
-    // 4. Save the trained model
+    printf("\n--- Training Complete ---\n");
+    
+    // Diagnostic: Print output layer weights after training
+    printf("[TRAINING DIAGNOSTIC] Output layer weights after training:\n");
+    for (int i = 0; i < 5; ++i) {
+        printf("  weight[%d]: %.6f\n", i, model.output_layer.weights[i]);
+    }
+    printf("  bias[0]: %.6f\n", model.output_layer.biases[0]);
+
+    // 5. Save the trained model
     save_model(&model, "../models/c_model.bin");
 
-    // 5. Cleaning up resources
-    printf("\n5. Cleaning up resources...\n"); fflush(stdout);
-    // free_model is no longer needed with static allocation.
-    free(all_data); // Dataset memory is still dynamic.
+    // 6. Cleaning up
+    printf("\n--- Cleaning up resources... ---\n"); fflush(stdout);
+    free(all_data);
     free(all_labels);
+    free(train_indices);
+    free(val_indices);
 
-
-    printf("\n--- Training process finished successfully. ---\n"); fflush(stdout);
-
+    printf("Training process finished successfully.\n"); fflush(stdout);
     return 0;
 }

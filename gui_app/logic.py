@@ -7,6 +7,7 @@ import csv
 import time
 import numpy as np
 import socket
+import struct
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 TRACKER_VENV = os.path.join(PROJECT_ROOT, "Python_Hand_Tracker", "venv_tracker")
@@ -80,6 +81,28 @@ def run_setup():
         yield f"\n[ERROR] An unexpected error occurred: {str(e)}\n"
 
 
+# --- Data Normalization ---
+
+def normalize_landmarks(landmarks_np):
+    """Normalizes a numpy array of landmarks.
+    Helper function to be used by both inference and data collection.
+    """
+    # 1. Normalize by subtracting the wrist (landmark 0) position
+    origin = landmarks_np[0].copy()
+    relative_landmarks = landmarks_np - origin
+
+    # 2. Calculate scale factor (average distance from origin)
+    distances = np.linalg.norm(relative_landmarks, axis=1)
+    scale_factor = np.mean(distances)
+    if scale_factor < 1e-6: # Avoid division by zero
+        scale_factor = 1
+
+    # 3. Scale the data
+    normalized_landmarks = relative_landmarks / scale_factor
+
+    # 4. Exclude the wrist landmark (it's the origin) and flatten
+    return normalized_landmarks[1:].flatten().tolist()
+
 # --- Hand Tracking and Data Collection ---
 
 class HandTracker:
@@ -98,34 +121,20 @@ class HandTracker:
         self.DATA_DIR = os.path.join(PROJECT_ROOT, 'models', 'data')
         os.makedirs(self.DATA_DIR, exist_ok=True)
 
-    def _normalize_landmarks(self, landmarks_np):
-        """Normalizes a numpy array of landmarks.
-        Helper function to be used by both inference and data collection.
-        """
-        # 1. Normalize by subtracting the wrist (landmark 0) position
-        origin = landmarks_np[0].copy()
-        relative_landmarks = landmarks_np - origin
 
-        # 2. Calculate scale factor (average distance from origin)
-        distances = np.linalg.norm(relative_landmarks, axis=1)
-        scale_factor = np.mean(distances)
-        if scale_factor < 1e-6: # Avoid division by zero
-            scale_factor = 1
-
-        # 3. Scale the data
-        normalized_landmarks = relative_landmarks / scale_factor
-
-        # 4. Exclude the wrist landmark (it's the origin) and flatten
-        return normalized_landmarks[1:].flatten().tolist()
 
     def get_landmark_data(self, hand_landmarks):
-        """Extracts, normalizes, and flattens all 21 landmark coordinates for inference."""
+        """Extracts and normalizes hand landmarks for inference.
+        Returns normalized data ready for the C server (60 floats).
+        """
         if not hand_landmarks:
             return None
         
-        # Extract all 21 landmarks into a numpy array
+        # Extract all 21 landmarks as numpy array
         landmarks_np = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark])
-        return self._normalize_landmarks(landmarks_np)
+        
+        # Normalize and exclude wrist (returns 60 floats)
+        return normalize_landmarks(landmarks_np)
 
     def process_frame(self, frame):
         """Processes a single video frame, finds, and draws hand landmarks."""
@@ -163,12 +172,9 @@ class HandTracker:
             for frame_landmarks_flat in data:
                 if not frame_landmarks_flat: continue # Skip empty frames
 
-                # Reshape the flat list into a (21, 3) numpy array
-                landmarks_np = np.array(frame_landmarks_flat).reshape(-1, 3)
-                # Use the centralized normalization method
-                row = self._normalize_landmarks(landmarks_np)
-
-                writer.writerow(row)
+                # Data is already normalized from get_landmark_data() - just save it directly
+                # frame_landmarks_flat is already a list of 60 floats (20 landmarks × 3 coords, wrist excluded)
+                writer.writerow(frame_landmarks_flat)
         
         # Return 1 to indicate one sequence was saved
         return 1
@@ -188,9 +194,13 @@ class GesturePredictor:
         self.rfile = None # For buffered reading
         self.classes = ['wave', 'swipe_left', 'swipe_right', 'Gesture Not Recognized']
         self.confidence_threshold = 0.70 # 70% confidence required
-        self.sequence_length = 100 # Must match SEQUENCE_LENGTH in C backend
-        self.num_features = 21 * 3
-        self.sequence_buffer = [[0.0] * self.num_features for _ in range(self.sequence_length)]
+        self.sequence_length = 20 # Must match SEQUENCE_LENGTH in C backend
+        self.window_stride = 5 # Must match WINDOW_STRIDE in C training code
+        self.num_features = 60 # We receive 60 features per frame (20 landmarks × 3 coords)
+        self.sequence_buffer = [] # Buffer will store normalized landmarks
+        self.frame_counter = 0  # Track frames for stride-based prediction
+        self.last_prediction = "Collecting data..."
+        self.last_confidence = 0.0
         self._connect() # Establish initial connection
 
     def _connect(self):
@@ -211,12 +221,33 @@ class GesturePredictor:
         """
         Buffers landmark data, sends it over the persistent connection for inference,
         and handles reconnections if necessary.
+        Uses stride-based prediction to match training temporal sampling.
         """
+        # If no hand is detected, clear the buffer and reset frame counter
         if landmark_data is None:
-            return "No Hand Present", 0.0
+            self.sequence_buffer.clear()
+            self.frame_counter = 0
+            self.last_prediction = "No Hand Present"
+            self.last_confidence = 0.0
+            return self.last_prediction, self.last_confidence
 
+        # A hand is present, so add the new data to our buffer.
+        # landmark_data is already normalized and contains 60 floats (20 landmarks × 3 coords)
         self.sequence_buffer.append(landmark_data)
-        self.sequence_buffer.pop(0)
+        self.frame_counter += 1
+        
+        # If buffer is full, remove the oldest frame
+        if len(self.sequence_buffer) > self.sequence_length:
+            self.sequence_buffer.pop(0)
+
+        # Only proceed if we have a full sequence AND we're at a stride boundary
+        if len(self.sequence_buffer) < self.sequence_length:
+            return "Collecting data...", 0.0
+        
+        # Only make predictions every WINDOW_STRIDE frames to match training pattern
+        if (self.frame_counter - self.sequence_length) % self.window_stride != 0:
+            # Skip inference, return last known prediction to keep UI stable
+            return self.last_prediction, self.last_confidence
 
         if not self.client_socket or not self.rfile:
             self._connect()
@@ -224,15 +255,33 @@ class GesturePredictor:
                 return "Connecting...", 0.0
 
         try:
-            # 1. Format data
-            flat_sequence = [item for sublist in self.sequence_buffer for item in sublist]
-            data_string = ",".join(map(str, flat_sequence)) + "\n"
+            # 1. Flatten the sequence buffer - data is already normalized
+            # Each frame has 60 floats, so total should be 20 frames × 60 floats = 1200 floats
+            normalized_sequence = []
+            for frame_landmarks in self.sequence_buffer:
+                normalized_sequence.extend(frame_landmarks)
 
-            # 2. Send data and get response over the persistent connection
-            self.client_socket.sendall(data_string.encode('utf-8'))
-            response = self.rfile.readline().strip() # Read a single, complete line
+            # Verify we have the expected amount of data
+            expected_size = self.sequence_length * 60  # 20 frames × 60 floats per frame
+            if len(normalized_sequence) != expected_size:
+                print(f"[GesturePredictor] Data size mismatch: got {len(normalized_sequence)}, expected {expected_size}")
+                return "Data Error", 0.0
 
-            # 3. Parse and return the prediction
+            # 2. Format data for sending as a raw binary stream of floats
+            # The format string consists of a float 'f' for each value in the sequence.
+            # '!' ensures network byte order (big-endian).
+            format_string = '!' + 'f' * len(normalized_sequence)
+            data_bytes = struct.pack(format_string, *normalized_sequence)
+
+            # 3. Pack message with length prefix and send
+            msg_len = len(data_bytes)
+            len_prefix = struct.pack('!I', msg_len) # Pack as 4-byte unsigned int, network byte order
+            self.client_socket.sendall(len_prefix + data_bytes)
+
+            # 4. Read response
+            response = self.client_socket.recv(1024).decode('utf-8').strip()
+
+            # 5. Parse and return the prediction
             if not response:
                 # This can happen if the server closes the connection cleanly
                 print("[GesturePredictor] Empty response from server. Reconnecting...")
@@ -244,9 +293,12 @@ class GesturePredictor:
             confidence = float(parts[1])
 
             if confidence < self.confidence_threshold:
-                return self.classes[-1], confidence
+                self.last_prediction = self.classes[-1]
+                self.last_confidence = confidence
             else:
-                return self.classes[prediction_index], confidence
+                self.last_prediction = self.classes[prediction_index]
+                self.last_confidence = confidence
+            return self.last_prediction, self.last_confidence
 
         except (BrokenPipeError, ConnectionResetError) as e:
             print(f"[GesturePredictor] Connection lost: {e}. Reconnecting...")

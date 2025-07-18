@@ -29,27 +29,84 @@ void init_model(Model* model) {
     initialize_weights(model->tcn_block.weights, sizeof(model->tcn_block.weights)/sizeof(float), INPUT_SIZE * TCN_KERNEL_SIZE);
     memset(model->tcn_block.biases, 0, sizeof(model->tcn_block.biases));
 
+    // Initialize TCN Adam state
+    memset(model->tcn_block.m_weights, 0, sizeof(model->tcn_block.m_weights));
+    memset(model->tcn_block.v_weights, 0, sizeof(model->tcn_block.v_weights));
+    memset(model->tcn_block.m_biases, 0, sizeof(model->tcn_block.m_biases));
+    memset(model->tcn_block.v_biases, 0, sizeof(model->tcn_block.v_biases));
+
     // Initialize Output Layer
     initialize_weights(model->output_layer.weights, sizeof(model->output_layer.weights)/sizeof(float), TCN_CHANNELS);
     memset(model->output_layer.biases, 0, sizeof(model->output_layer.biases));
+
+    // Initialize Output Layer Adam state
+    memset(model->output_layer.m_weights, 0, sizeof(model->output_layer.m_weights));
+    memset(model->output_layer.v_weights, 0, sizeof(model->output_layer.v_weights));
+    memset(model->output_layer.m_biases, 0, sizeof(model->output_layer.m_biases));
+    memset(model->output_layer.v_biases, 0, sizeof(model->output_layer.v_biases));
 }
 
 void save_model(const Model* model, const char* file_path) {
-    FILE* file = fopen(file_path, "wb");
-    if (!file) { perror("Failed to open file for writing"); return; }
-    fwrite(model, sizeof(Model), 1, file);
-    fclose(file);
-    printf("Model saved to %s.\n", file_path);
+    FILE* fp = fopen(file_path, "wb");
+    if (!fp) {
+        perror("Error opening file for writing");
+        return;
+    }
+
+    // --- Safe, Field-by-Field Writing ---
+    // This prevents memory alignment issues by writing each array individually,
+    // creating a packed file that the loader can read safely.
+    // We only write the weights and biases, to match the InferenceModel format.
+
+    // Write TCN block weights and biases
+    fwrite(model->tcn_block.weights, sizeof(model->tcn_block.weights), 1, fp);
+    fwrite(model->tcn_block.biases, sizeof(model->tcn_block.biases), 1, fp);
+
+    // Write Output layer weights and biases
+    fwrite(model->output_layer.weights, sizeof(model->output_layer.weights), 1, fp);
+    fwrite(model->output_layer.biases, sizeof(model->output_layer.biases), 1, fp);
+    
+    // Diagnostic: Print what we're saving
+    printf("[SAVE DIAGNOSTIC] Saving output layer weights:\n");
+    for (int i = 0; i < 5; ++i) {
+        printf("  weight[%d]: %.6f\n", i, model->output_layer.weights[i]);
+    }
+    printf("  bias[0]: %.6f\n", model->output_layer.biases[0]);
+
+    fclose(fp);
+    printf("Model saved to %s in a safe, packed format.\n", file_path);
 }
 
-int load_model(Model* model, const char* file_path) {
-    FILE* file = fopen(file_path, "rb");
-    if (!file) { perror("Could not open model file"); return -1; }
-    size_t read_count = fread(model, sizeof(Model), 1, file);
-    fclose(file);
-    if (read_count != 1) { fprintf(stderr, "Error reading model file\n"); return -1; }
-    printf("Model loaded successfully from %s.\n", file_path);
-    return 0;
+int load_inference_model(InferenceModel* model, const char* file_path) {
+    FILE* fp = fopen(file_path, "rb");
+    if (!fp) {
+        perror("Failed to open model file for reading");
+        return 0; // File not found or error
+    }
+
+    // --- Safe, Field-by-Field Reading ---
+    // This prevents memory alignment issues by reading directly into each array,
+    // respecting any padding the compiler might have added to the structs.
+
+    // Read TCN block weights and biases
+    size_t tcn_weights_read = fread(model->tcn_block.weights, sizeof(model->tcn_block.weights), 1, fp);
+    size_t tcn_biases_read = fread(model->tcn_block.biases, sizeof(model->tcn_block.biases), 1, fp);
+
+    // Read Output layer weights and biases
+    size_t out_weights_read = fread(model->output_layer.weights, sizeof(model->output_layer.weights), 1, fp);
+    size_t out_biases_read = fread(model->output_layer.biases, sizeof(model->output_layer.biases), 1, fp);
+
+    fclose(fp);
+
+    // Check that all read operations were successful
+    int success = (tcn_weights_read == 1 && tcn_biases_read == 1 && 
+                   out_weights_read == 1 && out_biases_read == 1);
+
+    if (!success) {
+        fprintf(stderr, "Error: Failed to read all components of the model file.\n");
+    }
+
+    return success;
 }
 
 // --- Activation Functions ---
@@ -73,12 +130,61 @@ static void softmax(float* input, float* output, size_t size) {
     for (size_t i = 0; i < size; ++i) output[i] /= sum_exp;
 }
 
-// --- Forward Pass ---
+// --- Forward Pass (Inference) ---
+void forward_pass_inference(const InferenceModel* model, const float* input_data, float* final_output) {
+    const int TCN_DILATION = 2; // TODO: This should be sourced from the header
+    // Note: This function is simplified and does not store intermediate values
+    // needed for backpropagation. It's for inference only.
+
+    // --- TCN Block --- 
+    float dilated_conv_output[SEQUENCE_LENGTH * TCN_CHANNELS] = {0};
+    // Dilated Convolution
+    for (int c_out = 0; c_out < TCN_CHANNELS; ++c_out) {
+        for (int t = 0; t < SEQUENCE_LENGTH; ++t) {
+            float sum = 0.0f;
+            for (int k = 0; k < TCN_KERNEL_SIZE; ++k) {
+                int t_in = t + (k - (TCN_KERNEL_SIZE - 1)) * TCN_DILATION;
+                if (t_in >= 0 && t_in < SEQUENCE_LENGTH) {
+                    for (int c_in = 0; c_in < INPUT_SIZE; ++c_in) {
+                        sum += input_data[t_in * INPUT_SIZE + c_in] * model->tcn_block.weights[c_out * (INPUT_SIZE * TCN_KERNEL_SIZE) + c_in * TCN_KERNEL_SIZE + k];
+                    }
+                }
+            }
+            sum += model->tcn_block.biases[c_out];
+            dilated_conv_output[t * TCN_CHANNELS + c_out] = leaky_relu(sum);
+        }
+    }
+
+    // --- Global Average Pooling --- 
+    float pooled_output[TCN_CHANNELS] = {0};
+    for (int c = 0; c < TCN_CHANNELS; ++c) {
+        float sum = 0.0f;
+        for (int t = 0; t < SEQUENCE_LENGTH; ++t) {
+            sum += dilated_conv_output[t * TCN_CHANNELS + c];
+        }
+        pooled_output[c] = sum / SEQUENCE_LENGTH;
+    }
+
+    // --- Output Layer --- 
+    float output_logits[NUM_CLASSES];
+    for (int j = 0; j < NUM_CLASSES; ++j) {
+        output_logits[j] = 0;
+        for (int i = 0; i < TCN_CHANNELS; ++i) {
+            output_logits[j] += pooled_output[i] * model->output_layer.weights[j * TCN_CHANNELS + i];
+        }
+        output_logits[j] += model->output_layer.biases[j];
+    }
+
+    // --- Softmax --- 
+    softmax(output_logits, final_output, NUM_CLASSES);
+}
+
+// --- Forward Pass (Training) ---
 void forward_pass(Model* model, const float* input_sequence, int epoch, int sample_idx) {
     // 1. TCN Block (Causal Convolution -> Leaky ReLU)
     for (int out_c = 0; out_c < TCN_CHANNELS; ++out_c) {
         for (int t = 0; t < SEQUENCE_LENGTH; ++t) {
-            float sum = model->tcn_block.biases[out_c];
+            double sum = model->tcn_block.biases[out_c]; // Use double for accumulator
             for (int in_c = 0; in_c < INPUT_SIZE; ++in_c) {
                 for (int k = 0; k < TCN_KERNEL_SIZE; ++k) {
                     int input_t = t - (TCN_KERNEL_SIZE - 1) + k; // Causal padding
@@ -103,6 +209,7 @@ void forward_pass(Model* model, const float* input_sequence, int epoch, int samp
 
     // 3. Output Layer (Dense)
     float final_layer_output[NUM_CLASSES];
+    memset(final_layer_output, 0, sizeof(final_layer_output)); // CRITICAL: Initialize to zero
     for (int i = 0; i < NUM_CLASSES; ++i) {
         float sum = model->output_layer.biases[i];
         for (int j = 0; j < TCN_CHANNELS; ++j) {
@@ -160,25 +267,40 @@ void backward_pass(Model* model, const float* input_sequence, const int* target_
     }
 
     // 5. Backprop through TCN Convolution
+    // Note: We don't need to compute grad_input since this is the first layer.
     for (int out_c = 0; out_c < TCN_CHANNELS; ++out_c) {
-        for (int t = 0; t < SEQUENCE_LENGTH; ++t) {
-            float grad_before_activation = grad_tcn_output[out_c * SEQUENCE_LENGTH + t];
-            model->tcn_block.grad_biases[out_c] += grad_before_activation;
+        for (int k = 0; k < TCN_KERNEL_SIZE; ++k) {
             for (int in_c = 0; in_c < INPUT_SIZE; ++in_c) {
-                for (int k = 0; k < TCN_KERNEL_SIZE; ++k) {
-                    int input_t = t - (TCN_KERNEL_SIZE - 1) + k;
+                float weight_grad = 0.0f;
+                for (int t = 0; t < SEQUENCE_LENGTH; ++t) {
+                    int input_t = t - (TCN_KERNEL_SIZE - 1) + k; // This logic is for 'valid' convolution padding
                     if (input_t >= 0 && input_t < SEQUENCE_LENGTH) {
-                        model->tcn_block.grad_weights[out_c * (INPUT_SIZE * TCN_KERNEL_SIZE) + in_c * TCN_KERNEL_SIZE + k] += grad_before_activation * input_sequence[input_t * INPUT_SIZE + in_c];
+                        weight_grad += grad_tcn_output[out_c * SEQUENCE_LENGTH + t] * input_sequence[input_t * INPUT_SIZE + in_c];
                     }
                 }
+                model->tcn_block.grad_weights[out_c * (INPUT_SIZE * TCN_KERNEL_SIZE) + in_c * TCN_KERNEL_SIZE + k] += weight_grad;
             }
         }
+        // Update bias gradient
+        float bias_grad = 0.0f;
+        for (int t = 0; t < SEQUENCE_LENGTH; ++t) {
+            bias_grad += grad_tcn_output[out_c * SEQUENCE_LENGTH + t];
+        }
+        model->tcn_block.grad_biases[out_c] += bias_grad;
     }
 }
 
 
 // --- Optimizer ---
-void update_weights(Model* model, float learning_rate) {
+void update_weights(Model* model, float learning_rate, float beta1, float beta2, float epsilon, int timestep) {
+    // Bias correction terms
+    float beta1_t = powf(beta1, timestep);
+    float beta2_t = powf(beta2, timestep);
+    // Ensure denominators are not zero
+    if (1.0f - beta1_t == 0.0f) beta1_t -= 1e-9; 
+    if (1.0f - beta2_t == 0.0f) beta2_t -= 1e-9;
+    float lr_t = learning_rate * sqrtf(1.0f - beta2_t) / (1.0f - beta1_t);
+
     // --- Gradient Clipping ---
     float grad_norm_sq = 0.0f;
     const float clip_threshold = 1.0f; // A common value for clipping threshold
@@ -201,133 +323,189 @@ void update_weights(Model* model, float learning_rate) {
     }
 
     // --- Update Weights ---
-    // Update TCN Block
-    for (size_t i = 0; i < sizeof(model->tcn_block.weights)/sizeof(float); ++i) model->tcn_block.weights[i] -= learning_rate * model->tcn_block.grad_weights[i];
-    for (size_t i = 0; i < sizeof(model->tcn_block.biases)/sizeof(float); ++i) model->tcn_block.biases[i] -= learning_rate * model->tcn_block.grad_biases[i];
+    // Update TCN block
+    for (size_t i = 0; i < sizeof(model->tcn_block.weights) / sizeof(float); ++i) {
+        float grad = model->tcn_block.grad_weights[i];
+        model->tcn_block.m_weights[i] = beta1 * model->tcn_block.m_weights[i] + (1 - beta1) * grad;
+        model->tcn_block.v_weights[i] = beta2 * model->tcn_block.v_weights[i] + (1 - beta2) * (grad * grad);
+        model->tcn_block.weights[i] -= lr_t * model->tcn_block.m_weights[i] / (sqrtf(model->tcn_block.v_weights[i]) + epsilon);
+    }
+    for (size_t i = 0; i < TCN_CHANNELS; ++i) {
+        float grad = model->tcn_block.grad_biases[i];
+        model->tcn_block.m_biases[i] = beta1 * model->tcn_block.m_biases[i] + (1 - beta1) * grad;
+        model->tcn_block.v_biases[i] = beta2 * model->tcn_block.v_biases[i] + (1 - beta2) * (grad * grad);
+        model->tcn_block.biases[i] -= lr_t * model->tcn_block.m_biases[i] / (sqrtf(model->tcn_block.v_biases[i]) + epsilon);
+    }
 
-    // Update Output Layer
-    for (size_t i = 0; i < sizeof(model->output_layer.weights)/sizeof(float); ++i) model->output_layer.weights[i] -= learning_rate * model->output_layer.grad_weights[i];
-    for (size_t i = 0; i < sizeof(model->output_layer.biases)/sizeof(float); ++i) model->output_layer.biases[i] -= learning_rate * model->output_layer.grad_biases[i];
+    // Update output layer
+    for (size_t i = 0; i < sizeof(model->output_layer.weights) / sizeof(float); ++i) {
+        float grad = model->output_layer.grad_weights[i];
+        model->output_layer.m_weights[i] = beta1 * model->output_layer.m_weights[i] + (1 - beta1) * grad;
+        model->output_layer.v_weights[i] = beta2 * model->output_layer.v_weights[i] + (1 - beta2) * (grad * grad);
+        model->output_layer.weights[i] -= lr_t * model->output_layer.m_weights[i] / (sqrtf(model->output_layer.v_weights[i]) + epsilon);
+    }
+    for (size_t i = 0; i < NUM_CLASSES; ++i) {
+        float grad = model->output_layer.grad_biases[i];
+        model->output_layer.m_biases[i] = beta1 * model->output_layer.m_biases[i] + (1 - beta1) * grad;
+        model->output_layer.v_biases[i] = beta2 * model->output_layer.v_biases[i] + (1 - beta2) * (grad * grad);
+        model->output_layer.biases[i] -= lr_t * model->output_layer.m_biases[i] / (sqrtf(model->output_layer.v_biases[i]) + epsilon);
+    }
 
-    // NOTE: Gradients are now reset at the beginning of the backward pass for each sample.
+    // Zero gradients after updating
+    zero_gradients(model);
 }
 
 // --- Data Loading with Overlapping Windows ---
 
-#define MAX_FRAMES_PER_FILE 300 // Max frames in a single recording file
-#define WINDOW_STRIDE 10        // Step size for the sliding window
+
+
+#define WINDOW_STRIDE 5 // Create a new window every 5 frames
 
 int load_temporal_data(const char* dir_path, const char** gestures, int num_gestures, float** out_data, int** out_labels, int* out_num_sequences) {
-    *out_num_sequences = 0;
-    struct dirent *entry;
-    char line[1024];
+    char path[1024];
+    int total_sequences = 0;
 
-    // --- PASS 1: Count the total number of augmented sequences (windows) --- 
-    for (int i = 0; i < num_gestures; ++i) {
-        char gesture_path[256];
-        snprintf(gesture_path, sizeof(gesture_path), "%s/%s", dir_path, gestures[i]);
-        DIR *dp = opendir(gesture_path);
-        if (!dp) { fprintf(stderr, "Could not open directory: %s\n", gesture_path); continue; }
+    // --- First Pass: Count total possible sequences ---
+    printf("Starting pass 1: Counting sequences...\n");
+    for (int i = 0; i < num_gestures; i++) {
+        snprintf(path, sizeof(path), "%s/%s", dir_path, gestures[i]);
+        DIR *d = opendir(path);
+        if (!d) {
+            fprintf(stderr, "Warning: Could not open directory %s\n", path);
+            continue;
+        }
+        struct dirent *dir;
+        while ((dir = readdir(d)) != NULL) {
+            if (strstr(dir->d_name, ".csv") == NULL) continue;
+            
+            char file_path[2048];
+            snprintf(file_path, sizeof(file_path), "%s/%s", path, dir->d_name);
+            FILE* file = fopen(file_path, "r");
+            if (!file) continue;
 
-        while ((entry = readdir(dp))) {
-            if (strstr(entry->d_name, ".csv")) {
-                char file_path[512];
-                snprintf(file_path, sizeof(file_path), "%s/%s", gesture_path, entry->d_name);
-                FILE* file = fopen(file_path, "r");
-                if (!file) continue;
+            int frame_count = 0;
+            char line_buffer[4096];
+            while (fgets(line_buffer, sizeof(line_buffer), file)) {
+                frame_count++;
+            }
+            fclose(file);
 
-                int frame_count = 0;
-                while (fgets(line, sizeof(line), file)) frame_count++;
-                fclose(file);
-
-                if (frame_count >= SEQUENCE_LENGTH) {
-                    int num_windows = 1 + (frame_count - SEQUENCE_LENGTH) / WINDOW_STRIDE;
-                    *out_num_sequences += num_windows;
-                }
+            if (frame_count >= SEQUENCE_LENGTH) {
+                total_sequences += (frame_count - SEQUENCE_LENGTH) / WINDOW_STRIDE + 1;
             }
         }
-        closedir(dp);
+        closedir(d);
     }
 
-    if (*out_num_sequences == 0) { fprintf(stderr, "No valid sequences found to generate windows.\n"); return -1; }
-    printf("Found %d raw gesture files. Generating %d training sequences with a stride of %d.\n", *out_num_sequences, *out_num_sequences, WINDOW_STRIDE);
+    if (total_sequences == 0) {
+        fprintf(stderr, "Error: No valid data sequences found. All files might be shorter than SEQUENCE_LENGTH (%d).\n", SEQUENCE_LENGTH);
+        return -1;
+    }
+    printf("Pass 1 complete. Found %d possible sequences. Allocating memory...\n", total_sequences);
 
-    // --- Allocate memory for all augmented sequences ---
-    *out_data = (float*)malloc(*out_num_sequences * SEQUENCE_LENGTH * INPUT_SIZE * sizeof(float));
-    *out_labels = (int*)malloc(*out_num_sequences * sizeof(int));
-    if (!*out_data || !*out_labels) { fprintf(stderr, "Failed to allocate memory for augmented data\n"); return -1; }
+    // --- Memory Allocation ---
+    *out_data = (float*)malloc(total_sequences * SEQUENCE_LENGTH * INPUT_SIZE * sizeof(float));
+    *out_labels = (int*)malloc(total_sequences * sizeof(int));
+    if (!*out_data || !*out_labels) { 
+        perror("Fatal: Failed to allocate memory for data"); 
+        return -1; 
+    }
 
-    // --- PASS 2: Read data and create overlapping windows ---
+    // --- Second Pass: Read data into memory ---
+    printf("Starting pass 2: Loading data...\n");
     int current_sequence_idx = 0;
-    float temp_frames[MAX_FRAMES_PER_FILE * INPUT_SIZE];
+    for (int i = 0; i < num_gestures; i++) {
+        snprintf(path, sizeof(path), "%s/%s", dir_path, gestures[i]);
+        DIR *d = opendir(path);
+        if (!d) continue;
+        struct dirent *dir;
+        while ((dir = readdir(d)) != NULL) {
+            if (strstr(dir->d_name, ".csv") == NULL) continue;
 
-    for (int i = 0; i < num_gestures; ++i) {
-        char gesture_path[256];
-        snprintf(gesture_path, sizeof(gesture_path), "%s/%s", dir_path, gestures[i]);
-        DIR *dp = opendir(gesture_path);
-        if (!dp) continue;
+            char file_path[2048];
+            snprintf(file_path, sizeof(file_path), "%s/%s", path, dir->d_name);
+            FILE* file = fopen(file_path, "r");
+            if (!file) continue;
 
-        while ((entry = readdir(dp))) {
-            if (strstr(entry->d_name, ".csv")) {
-                char file_path[512];
-                snprintf(file_path, sizeof(file_path), "%s/%s", gesture_path, entry->d_name);
-                FILE* file = fopen(file_path, "r");
-                if (!file) continue;
+            // Count lines to determine exact memory needed for this file
+            int frame_count = 0;
+            char line[4096];
+            while (fgets(line, sizeof(line), file)) {
+                frame_count++;
+            }
+            rewind(file); // Go back to the start of the file
 
-                // Read all frames from the file into a temporary buffer
-                int frame_count = 0;
-                while (fgets(line, sizeof(line), file) && frame_count < MAX_FRAMES_PER_FILE) {
-                    char* token = strtok(line, ",");
-                    // Skip the first 3 values (wrist landmark)
-                    for (int k = 0; k < 3; ++k) {
-                        if (token) token = strtok(NULL, ",");
-                    }
+            if (frame_count == 0) { fclose(file); continue; }
 
-                    for (int j = 0; j < INPUT_SIZE; ++j) {
-                        if (token) {
-                            temp_frames[frame_count * INPUT_SIZE + j] = atof(token);
-                            token = strtok(NULL, ",");
-                        } else {
-                            temp_frames[frame_count * INPUT_SIZE + j] = 0.0f;
-                        }
-                    }
-                    frame_count++;
+            // Dynamically allocate a buffer of the exact size needed
+            float* temp_frames = (float*)malloc(frame_count * INPUT_SIZE * sizeof(float));
+            if (temp_frames == NULL) { 
+                perror("Failed to allocate temp buffer");
+                fclose(file); 
+                continue; 
+            }
+
+            // Read all frames into the correctly sized buffer
+            int current_frame = 0;
+            while (fgets(line, sizeof(line), file) && current_frame < frame_count) {
+                char* token = strtok(line, ",");
+                for (int feat = 0; feat < INPUT_SIZE && token != NULL; feat++) {
+                    temp_frames[current_frame * INPUT_SIZE + feat] = atof(token);
+                    token = strtok(NULL, ",");
                 }
-                fclose(file);
+                current_frame++;
+            }
+            fclose(file);
 
-                // Generate overlapping windows from the temporary buffer
-                if (frame_count >= SEQUENCE_LENGTH) {
-                    for (int start_frame = 0; start_frame <= frame_count - SEQUENCE_LENGTH; start_frame += WINDOW_STRIDE) {
-                        if(current_sequence_idx >= *out_num_sequences) {
-                            fprintf(stderr, "Error: Exceeded allocated memory for sequences!\n");
-                            break; // Avoid buffer overflow
-                        }
-                        // Copy the window into the final data array
-                        memcpy(&((*out_data)[current_sequence_idx * SEQUENCE_LENGTH * INPUT_SIZE]),
-                               &temp_frames[start_frame * INPUT_SIZE],
-                               SEQUENCE_LENGTH * INPUT_SIZE * sizeof(float));
-                        (*out_labels)[current_sequence_idx] = i;
-                        current_sequence_idx++;
+            // Create overlapping windows from the buffer
+            if (frame_count >= SEQUENCE_LENGTH) {
+                for (int start_frame = 0; start_frame <= frame_count - SEQUENCE_LENGTH; start_frame += WINDOW_STRIDE) {
+                    if (current_sequence_idx >= total_sequences) {
+                        fprintf(stderr, "Error: About to write out of bounds! Check counting logic.\n");
+                        break;
                     }
+                    float* data_ptr = &((*out_data)[current_sequence_idx * SEQUENCE_LENGTH * INPUT_SIZE]);
+                    memcpy(data_ptr, &temp_frames[start_frame * INPUT_SIZE], SEQUENCE_LENGTH * INPUT_SIZE * sizeof(float));
+                    (*out_labels)[current_sequence_idx] = i;
+                    current_sequence_idx++;
                 }
             }
+            free(temp_frames);
         }
-        closedir(dp);
+        closedir(d);
     }
-    *out_num_sequences = current_sequence_idx; // Update to the actual number of sequences created
+
+    *out_num_sequences = current_sequence_idx;
+    printf("Pass 2 complete. Successfully loaded and augmented data into %d sequences.\n", *out_num_sequences);
+
+
     return 0; // Success
 }
 
-void shuffle_data(float* data, int* labels, int num_samples) {
+// --- Data Preparation ---
+
+void shuffle_indices(int* indices, int num_samples) {
     for (int i = num_samples - 1; i > 0; i--) {
         int j = rand() % (i + 1);
-        int temp_label = labels[i];
-        labels[i] = labels[j];
-        labels[j] = temp_label;
-
-        float temp_data[SEQUENCE_LENGTH * INPUT_SIZE];
-        memcpy(temp_data, &data[i * SEQUENCE_LENGTH * INPUT_SIZE], SEQUENCE_LENGTH * INPUT_SIZE * sizeof(float));
-        memcpy(&data[i * SEQUENCE_LENGTH * INPUT_SIZE], &data[j * SEQUENCE_LENGTH * INPUT_SIZE], SEQUENCE_LENGTH * INPUT_SIZE * sizeof(float));
-        memcpy(&data[j * SEQUENCE_LENGTH * INPUT_SIZE], temp_data, SEQUENCE_LENGTH * INPUT_SIZE * sizeof(float));
+        int temp = indices[i];
+        indices[i] = indices[j];
+        indices[j] = temp;
     }
+}
+
+void split_data(int num_sequences, float train_split, int* train_indices, int* num_train, int* val_indices, int* num_val) {
+    int* all_indices = (int*)malloc(num_sequences * sizeof(int));
+    for (int i = 0; i < num_sequences; ++i) {
+        all_indices[i] = i;
+    }
+
+    shuffle_indices(all_indices, num_sequences);
+
+    *num_train = (int)(num_sequences * train_split);
+    *num_val = num_sequences - *num_train;
+
+    memcpy(train_indices, all_indices, *num_train * sizeof(int));
+    memcpy(val_indices, &all_indices[*num_train], *num_val * sizeof(int));
+
+    free(all_indices);
 }
