@@ -12,6 +12,7 @@ gui_app/venv_gui/
 *.out
 RA8D1_Simulation/ra8d1_sim
 RA8D1_Simulation/train_c
+RA8D1_Simulation/train_in_c
 
 # Generated Models (but not the data)
 models/model.onnx
