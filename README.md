@@ -1,13 +1,12 @@
 # Temporal Hand Gesture Recognition for Renesas RA8D1
 
-[![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)](https://github.com/WillForEternity/PerClassLoRA--RA8D1)
-[![Platform](https://img.shields.io/badge/Platform-Renesas%20RA8D1-blue)](https://www.renesas.com/us/en/products/microcontrollers-microprocessors/ra-cortex-m-mcus/ra8d1-480-mhz-arm-cortex-m85-based-microcontroller-helium-and-trustzone)
+[![Built For:](https://img.shields.io/badge/Built%20For-Renesas%20RA8D1-blue)](https://www.renesas.com/us/en/products/microcontrollers-microprocessors/ra-cortex-m-mcus/ra8d1-480-mhz-arm-cortex-m85-based-microcontroller-helium-and-trustzone)
 [![Memory](https://img.shields.io/badge/Memory-%3C1MB%20SRAM-orange)]()
 [![Accuracy](https://img.shields.io/badge/Accuracy-98%25%2B-success)]()
 
 ## 1. Project Overview
 
-This project delivers a production-ready, real-time temporal hand gesture recognition system optimized for the Renesas RA8D1 microcontroller. It features a custom-built Temporal Convolutional Network (TCN) designed to operate within a strict 1MB SRAM memory constraint, demonstrating the successful deployment of advanced machine learning on a resource-constrained embedded platform.
+This project delivers a real-time temporal hand gesture recognition system optimized for the Renesas RA8D1 microcontroller. It features a custom-built Temporal Convolutional Network (TCN) designed to operate within a strict 1MB SRAM memory constraint, demonstrating the successful deployment of advanced machine learning on a resource-constrained embedded platform.
 
 The system is fully functional, having resolved critical data pipeline discrepancies between training and inference environments to achieve high accuracy and stable performance in real-world conditions.
 
