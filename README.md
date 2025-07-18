@@ -1,7 +1,5 @@
 # Temporal Hand Gesture Recognition for Renesas RA8D1
 
-# Temporal Hand Gesture Recognition for Renesas RA8D1
-
 [![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)](https://github.com/WillForEternity/PerClassLoRA--RA8D1)
 [![Platform](https://img.shields.io/badge/Platform-Renesas%20RA8D1-blue)](https://www.renesas.com/us/en/products/microcontrollers-microprocessors/ra-cortex-m-mcus/ra8d1-480-mhz-arm-cortex-m85-based-microcontroller-helium-and-trustzone)
 [![Memory](https://img.shields.io/badge/Memory-%3C1MB%20SRAM-orange)]()
