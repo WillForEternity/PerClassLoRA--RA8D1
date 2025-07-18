@@ -16,7 +16,7 @@ The system is fully functional, having resolved critical data pipeline discrepan
 The system employs a hybrid architecture, leveraging a Python-based GUI for user interaction and a high-performance C backend for model execution.
 
 ```
-┌───────────────────┐      Persistent TCP      ┌───────────────────┐
+┌───────────────────┐      Persistent TCP     ┌───────────────────┐
 │   Python Frontend │ ◄─────────────────────► │    C Backend      │
 │ (PyQt6 GUI)       │         Socket          │ (Inference Engine)│
 ├───────────────────┤                         ├───────────────────┤
@@ -29,8 +29,8 @@ The system employs a hybrid architecture, leveraging a Python-based GUI for user
          ▼                                             │
 ┌───────────────────┐       C Training          ┌───────────────────┐
 │  Training Data    │        Process            │   Binary Model    │
-│   (CSV Files)     │ ───────────────────────► │  (c_model.bin)    │
-└───────────────────┘                         └───────────────────┘
+│   (CSV Files)     │ ───────────────────────►  |  (c_model.bin)    │
+└───────────────────┘                           └───────────────────┘
 ```
 
 ## 3. Technical Specifications
