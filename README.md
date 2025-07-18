@@ -27,10 +27,10 @@ The system employs a hybrid architecture, leveraging a Python-based GUI for user
 └───────────────────┘                         └───────────────────┘
          │                                             ▲
          ▼                                             │
-┌───────────────────┐       C Training          ┌───────────────────┐
-│  Training Data    │        Process            │   Binary Model    │
-│   (CSV Files)     │ ───────────────────────►  |  (c_model.bin)    │
-└───────────────────┘                           └───────────────────┘
+┌───────────────────┐       C Training        ┌───────────────────┐
+│  Training Data    │        Process          │   Binary Model    │
+│   (CSV Files)     │ ──────────────────────► |  (c_model.bin)    │
+└───────────────────┘                         └───────────────────┘
 ```
 
 ## 3. Technical Specifications
