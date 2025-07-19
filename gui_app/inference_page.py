@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot
 from gui_app.logic import HandTracker, GesturePredictor
 
 class InferenceWorker(QThread):
-    """Worker thread for handling camera input and gesture prediction."""
+    """Worker for camera input and gesture prediction."""
     new_frame = pyqtSignal(np.ndarray)
     new_prediction = pyqtSignal(str, float)
 
@@ -27,17 +27,17 @@ class InferenceWorker(QThread):
             if not ret:
                 continue
 
-            # Process the frame to get hand landmarks and the annotated image
+            # Get hand landmarks and annotated frame
             hand_landmarks, annotated_frame = self.hand_tracker.process_frame(frame)
 
-            # Get landmark data (will be None if no hand is detected)
+            # Get landmark data (None if no hand)
             landmark_data = self.hand_tracker.get_landmark_data(hand_landmarks)
 
-            # Always run prediction. The predictor's logic will handle the None case.
+            # Predictor handles None case
             predicted_gesture, confidence = self.gesture_predictor.predict(landmark_data)
             self.new_prediction.emit(predicted_gesture, confidence)
 
-            # Update the video feed with the annotated frame
+            # Update video feed
             self.new_frame.emit(cv2.flip(annotated_frame, 1))
         cap.release()
 
@@ -90,7 +90,7 @@ class InferencePage(QWidget):
         layout.addLayout(content_layout)
 
     def _start_inference(self):
-        # 1. Check for model file first
+        # Check for model file
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         c_model_path = os.path.join(project_root, 'models', 'c_model.bin')
         if not os.path.exists(c_model_path):
@@ -113,7 +113,7 @@ class InferencePage(QWidget):
             self.set_navigation_enabled.emit(False)
 
         except Exception as e:
-            self.prediction_label.setText(f"Error: {e}")
+            self.prediction_label.setText(f"Error starting: {e}")
             self.start_button.setEnabled(False)
 
     def _stop_inference(self):
@@ -148,10 +148,10 @@ class InferencePage(QWidget):
     @pyqtSlot(str, float)
     def update_prediction(self, gesture, confidence):
         if gesture == "No Hand Present":
-            self.prediction_label.setText("Prediction: No Hand Detected")
+            self.prediction_label.setText("Prediction: No Hand")
             self.confidence_label.setText("Confidence: --")
         elif gesture == "Collecting data...":
-            self.prediction_label.setText("Status: Collecting Frames...")
+            self.prediction_label.setText("Status: Collecting...")
             self.confidence_label.setText("Confidence: --")
         else:
             self.prediction_label.setText(f"Prediction: {gesture.capitalize()}")
@@ -159,12 +159,12 @@ class InferencePage(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        # Automatically start inference when the page is shown
+        # Auto-start inference on show
         if not self.worker or not self.worker.isRunning():
             self._start_inference()
 
     def hideEvent(self, event):
         super().hideEvent(event)
-        # Automatically stop inference when the page is hidden
+        # Auto-stop inference on hide
         if self.worker and self.worker.isRunning():
             self._stop_inference()

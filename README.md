@@ -8,7 +8,7 @@
 
 This project delivers a real-time temporal hand gesture recognition system optimized for the Renesas RA8D1 microcontroller. It features a custom-built Temporal Convolutional Network (TCN) designed to operate within a strict 1MB SRAM memory constraint, demonstrating the successful deployment of advanced machine learning on a resource-constrained embedded platform.
 
-The system is fully functional, having resolved critical data pipeline discrepancies between training and inference environments to achieve high accuracy and stable performance in real-world conditions.
+The system is now fully functional and robust. After a rigorous debugging process that resolved critical bugs in the C-based Adam optimizer and the server's model-loading lifecycle, the entire pipeline—from data collection to training and real-time inference—operates with high accuracy and stability.
 
 ## 2. Getting Started
 
@@ -52,7 +52,7 @@ make clean
 
 1.  **🚀 Initial Setup**: Run `./start_app.sh` to automatically build all components and launch the GUI.
 2.  **📊 Data Collection**: Use the **Data Collection** tab to record temporal gestures using the live camera feed. Each gesture is captured as a 20-frame sequence and saved as a CSV file in `models/data/{gesture_name}/`.
-3.  **🏋️ Model Training**: Navigate to the **Training** tab and click "Start Training." This invokes the `train_c` executable, which loads the CSV data, runs the training process for 200 epochs, and saves the final `c_model.bin`.
+3.  **🏋️ Model Training**: Navigate to the **Training** tab and click "Start Training." This invokes the `train_c` executable, which loads the CSV data, runs the training process for **500 epochs** to ensure robust learning, and saves the final `c_model.bin`.
 4.  **🎯 Real-time Inference**: Open the **Inference** tab to see live gesture recognition. The GUI sends normalized hand landmark data to the `ra8d1_sim` server and displays the returned prediction and confidence score.
 
 ## 4. System Architecture & Technical Specifications
@@ -89,8 +89,8 @@ The system employs a hybrid architecture, leveraging a Python-based GUI for user
 
 | Aspect | Specification |
 | :--- | :--- |
-| **Model Type** | Custom Temporal Convolutional Network (TCN) with 2 channels. |
-| **Input Shape** | 20 frames × 60 features (20 landmarks × 3 coordinates, wrist excluded). |
+| **Model Type** | Custom Temporal Convolutional Network (TCN) with **8 channels**. |
+| **Input Shape** | 20 frames × **63 features** (21 landmarks × 3 coordinates). |
 | **Activation** | Leaky ReLU (α=0.01) to prevent dying neurons. |
 | **Optimizer** | Adam with He Initialization. |
 | **Temporal Sampling**| Stride-5 for both training and inference to ensure consistency. |

@@ -3,12 +3,12 @@
 #include <math.h>
 #include "training_logic.h"
 
-// --- Constants ---
+// Constants
 #define DATA_DIR "../models/data"
 const char* GESTURES[] = {"wave", "swipe_left", "swipe_right"};
 const int NUM_GESTURES = sizeof(GESTURES) / sizeof(GESTURES[0]);
 
-// --- Training Hyperparameters ---
+// Training Hyperparameters
 #define NUM_EPOCHS 500
 #define LEARNING_RATE 0.001f
 #define BETA1 0.9f
@@ -17,7 +17,7 @@ const int NUM_GESTURES = sizeof(GESTURES) / sizeof(GESTURES[0]);
 
 #define TRAIN_SPLIT 0.8f
 
-// --- Helper Functions to calculate loss and accuracy ---
+// Loss and accuracy helpers
 float calculate_loss(const float* predictions, int target_label) {
     float predicted_prob = predictions[target_label];
     if (predicted_prob < 1e-9) predicted_prob = 1e-9;
@@ -35,9 +35,10 @@ float calculate_accuracy(const float* predictions, int target_label) {
 }
 
 int main() {
-    printf("--- C-Based Model Training ---\n"); fflush(stdout);
+    printf("--- C Training Executable Started ---\n");
+    printf("C-Based Model Training\n");
 
-    // 1. Load Data
+    // Load Data
     float* all_data = NULL;
     int* all_labels = NULL;
     int num_sequences = 0;
@@ -46,33 +47,33 @@ int main() {
     }
     printf("Loaded %d total sequences.\n", num_sequences);
 
-    // 2. Split data into training and validation sets
+    // Split data
     int num_train = 0, num_val = 0;
     int* train_indices = (int*)malloc(num_sequences * sizeof(int));
     int* val_indices = (int*)malloc(num_sequences * sizeof(int));
     split_data(num_sequences, TRAIN_SPLIT, train_indices, &num_train, val_indices, &num_val);
     printf("Split data into %d training and %d validation samples.\n", num_train, num_val);
 
-    // Initialize model
+    // Init model
     Model model;
     init_model(&model);
     
-    // Diagnostic: Print output layer weights after initialization
+    // Diagnostic: Initial output layer weights
     printf("[TRAINING DIAGNOSTIC] Output layer weights after initialization:\n");
     for (int i = 0; i < 5; ++i) {
         printf("  weight[%d]: %.6f\n", i, model.output_layer.weights[i]);
     }
     printf("  bias[0]: %.6f\n", model.output_layer.biases[0]);
 
-    // 4. Training Loop
-    printf("\n--- Starting Training ---\n");
+    // Training Loop
+    printf("\nStarting Training\n");
     printf("Hyperparameters: Epochs=%d, LR=%.4f, Train/Val Split=%.0f/%.0f\n", NUM_EPOCHS, LEARNING_RATE, TRAIN_SPLIT*100, (1-TRAIN_SPLIT)*100); 
     fflush(stdout);
 
     int timestep = 0;
     for (int epoch = 0; epoch < NUM_EPOCHS; ++epoch) {
         
-        // --- Training Phase ---
+        // Training Phase
         float total_train_loss = 0.0f;
         for (int i = 0; i < num_train; ++i) {
             timestep++;
@@ -89,7 +90,7 @@ int main() {
             update_weights(&model, LEARNING_RATE, BETA1, BETA2, EPSILON, timestep);
         }
 
-        // --- Validation Phase ---
+        // Validation Phase
         float total_val_loss = 0.0f;
         float total_val_acc = 0.0f;
         for (int i = 0; i < num_val; ++i) {
@@ -112,25 +113,30 @@ int main() {
         }
     }
 
-    printf("\n--- Training Complete ---\n");
+    printf("\nTraining Complete\n");
     
-    // Diagnostic: Print output layer weights after training
+    // Diagnostic: Final output layer weights
     printf("[TRAINING DIAGNOSTIC] Output layer weights after training:\n");
     for (int i = 0; i < 5; ++i) {
         printf("  weight[%d]: %.6f\n", i, model.output_layer.weights[i]);
     }
     printf("  bias[0]: %.6f\n", model.output_layer.biases[0]);
 
-    // 5. Save the trained model
+    // Save model
+    printf("\n[TRAINING] Saving model to ../models/c_model.bin...\n");
+    fflush(stdout);
     save_model(&model, "../models/c_model.bin");
+    printf("[TRAINING] Model saved successfully.\n");
+    fflush(stdout);
 
-    // 6. Cleaning up
-    printf("\n--- Cleaning up resources... ---\n"); fflush(stdout);
+    // Cleanup
+    printf("\nCleaning up resources...\n");
     free(all_data);
     free(all_labels);
     free(train_indices);
     free(val_indices);
 
-    printf("Training process finished successfully.\n"); fflush(stdout);
+    printf("Training finished.\n");
+    printf("--- C Training Executable Finished ---\n");
     return 0;
 }

@@ -54,6 +54,20 @@ This document provides a technical log of the significant challenges encountered
 
 ---
 
+### 5. System Reliability: Fixing the Post-Training Workflow
+
+After achieving initial success, a series of architectural changes to improve model capacity and startup robustness introduced two severe, high-priority bugs that broke the core workflow.
+
+-   **Problem 1: Stale Model Inference.** After training a new model, the inference page would either crash or produce garbage predictions (e.g., 0.0 confidence). Logs from the C server revealed it was continuously sending a "no model loaded" response, even though a `c_model.bin` file existed.
+    -   **Investigation:** The root cause was identified as a lifecycle mismatch. The C inference server (`ra8d1_sim`) was designed to load the model file only once at startup. It was never notified when the training process overwrote the `c_model.bin` file. The server process would continue running with its initial state (either no model or an old model), completely unaware of the newly trained weights.
+    -   **Solution:** The architecture was corrected by making the Python GUI responsible for the C server's lifecycle. The `TrainingPage` was modified to automatically **kill and restart the C inference server process** after every successful training run. This guarantees that the server always loads the latest model file, ensuring a seamless transition from training to inference.
+
+-   **Problem 2: Model Not Learning.** After fixing the stale model issue, a more insidious bug emerged: the training process would run, but the model's loss and accuracy would remain completely stagnant, indicating that the weights were not being updated.
+    -   **Investigation:** Diagnostic logs confirmed that the gradients were being calculated correctly during the backward pass. However, a closer look at the `update_weights` function (the Adam optimizer implementation) revealed a critical memory error. The `sizeof()` operator was being used incorrectly, passing the size of the entire `Model` struct instead of the size of the specific weight/bias arrays. This caused the optimizer to read and write out of bounds, corrupting its internal state (the `m` and `v` moments) on every step and preventing any meaningful weight updates.
+    -   **Solution:** The `sizeof()` calls in the `update_weights` function were corrected to reference the specific arrays (e.g., `sizeof(model->tcn_block.weights)`). This restored the integrity of the Adam optimizer, and the model immediately began to learn effectively. This bug served as a critical lesson in how low-level C memory errors can manifest as high-level, non-obvious machine learning failures.
+
+---
+
 ## Final Outcome
 
 All major blockers were resolved. The C-based TCN backend is numerically stable, adheres to embedded memory constraints, and communicates flawlessly with the Python frontend. The project successfully demonstrates a production-ready workflow for developing and deploying advanced temporal models on resource-constrained hardware.

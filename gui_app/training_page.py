@@ -4,12 +4,13 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot, QTimer
 import subprocess
 import os
+import signal
 import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 class MplCanvas(FigureCanvas):
-    """A custom Matplotlib widget for PyQt."""
+    """Matplotlib widget for PyQt."""
     def __init__(self, parent=None, width=5, height=4, dpi=100):
         fig = Figure(figsize=(width, height), dpi=dpi, facecolor='#1e1e1e')
         self.axes = fig.add_subplot(111)
@@ -26,18 +27,18 @@ class MplCanvas(FigureCanvas):
         super(MplCanvas, self).__init__(fig)
 
 class TrainingWorker(QThread):
-    """Runs the C training executable as a subprocess."""
+    """Run the C training executable."""
     new_log_message = pyqtSignal(str)
 
     def run(self):
-        self.new_log_message.emit("--- Initializing C-based training process...")
+        self.new_log_message.emit("Initializing C training...")
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         c_executable_dir = os.path.join(project_root, "RA8D1_Simulation")
         c_executable_path = os.path.join(c_executable_dir, "train_c")
 
         if not os.path.exists(c_executable_path):
-            self.new_log_message.emit(f"[ERROR] C training executable not found at: {c_executable_path}")
-            self.new_log_message.emit("Please compile it first by running 'make' in the RA8D1_Simulation directory.")
+            self.new_log_message.emit(f"Error: C training executable not found at {c_executable_path}")
+            self.new_log_message.emit("Please run 'make' in the RA8D1_Simulation directory.")
             return
 
         try:
@@ -58,7 +59,7 @@ class TrainingWorker(QThread):
             process.wait()
 
         except Exception as e:
-            self.new_log_message.emit(f"\n[FATAL ERROR] Failed to run training subprocess: {e}")
+            self.new_log_message.emit(f"\nError: Failed to run training: {e}")
 
 class TrainingPage(QWidget):
     set_navigation_enabled = pyqtSignal(bool)
@@ -118,7 +119,7 @@ class TrainingPage(QWidget):
     def start_training_process(self):
         self.log_console.clear()
         self.run_button.setEnabled(False)
-        self.run_button.setText("Training in Progress...")
+        self.run_button.setText("Training...")
         self.set_navigation_enabled.emit(False)
         self.training_worker.start()
 
@@ -131,7 +132,46 @@ class TrainingPage(QWidget):
         self.run_button.setEnabled(True)
         self.run_button.setText("Start Training")
         self.set_navigation_enabled.emit(True)
-        self.append_log_message("\n--- C-Based Training Process Finished ---")
+        self.append_log_message("\nC training finished.")
+        self.restart_c_server()
+
+    def restart_c_server(self):
+        self.append_log_message("\n--- Restarting C Inference Server ---")
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        pid_file_path = os.path.join(project_root, ".c_server.pid")
+        log_file_path = os.path.join(project_root, "c_server.log")
+        server_executable_dir = os.path.join(project_root, "RA8D1_Simulation")
+        server_executable_path = os.path.join(server_executable_dir, "ra8d1_sim")
+
+        # 1. Stop the existing server
+        try:
+            if os.path.exists(pid_file_path):
+                with open(pid_file_path, 'r') as f:
+                    pid = int(f.read().strip())
+                self.append_log_message(f"Stopping existing server (PID: {pid})...")
+                os.kill(pid, signal.SIGTERM)
+                os.remove(pid_file_path)
+            else:
+                self.append_log_message("No existing server PID file found. Assuming server is not running.")
+        except (ProcessLookupError, ValueError, FileNotFoundError) as e:
+            self.append_log_message(f"Could not stop previous server (it may have already been stopped): {e}")
+
+        # 2. Start the new server
+        try:
+            self.append_log_message(f"Starting new server from: {server_executable_path}")
+            with open(log_file_path, 'w') as log_file:
+                process = subprocess.Popen(
+                    [server_executable_path],
+                    cwd=server_executable_dir,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT
+                )
+            # 3. Save the new PID
+            with open(pid_file_path, 'w') as f:
+                f.write(str(process.pid))
+            self.append_log_message(f"New C server started successfully (PID: {process.pid}). Logs at c_server.log")
+        except Exception as e:
+            self.append_log_message(f"Error restarting C server: {e}")
 
     def set_setup_status(self, is_complete):
         self.is_setup_complete = is_complete

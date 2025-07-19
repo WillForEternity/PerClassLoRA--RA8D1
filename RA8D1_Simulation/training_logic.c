@@ -6,9 +6,9 @@
 #include <time.h>
 #include <dirent.h> // For directory traversal
 
-// --- Private Helper Functions ---
+// Private Helper Functions
 
-// Helper to initialize weights using He initialization (good for ReLU)
+// He weight initialization (for ReLU)
 static void initialize_weights(float* weights, size_t num_weights, size_t fan_in) {
     float std_dev = sqrtf(2.0f / fan_in);
     for (size_t i = 0; i < num_weights; ++i) {
@@ -20,7 +20,7 @@ static void initialize_weights(float* weights, size_t num_weights, size_t fan_in
     }
 }
 
-// --- Model Initialization and Cleanup ---
+// Model Init/Cleanup
 
 void init_model(Model* model) {
     srand(time(NULL));
@@ -30,20 +30,20 @@ void init_model(Model* model) {
     memset(model->tcn_block.biases, 0, sizeof(model->tcn_block.biases));
 
     // Initialize TCN Adam state
-    memset(model->tcn_block.m_weights, 0, sizeof(model->tcn_block.m_weights));
-    memset(model->tcn_block.v_weights, 0, sizeof(model->tcn_block.v_weights));
-    memset(model->tcn_block.m_biases, 0, sizeof(model->tcn_block.m_biases));
-    memset(model->tcn_block.v_biases, 0, sizeof(model->tcn_block.v_biases));
+    memset(model->tcn_block.m_weights, 0, sizeof(model->tcn_block.weights));
+    memset(model->tcn_block.v_weights, 0, sizeof(model->tcn_block.weights));
+    memset(model->tcn_block.m_biases, 0, sizeof(model->tcn_block.biases));
+    memset(model->tcn_block.v_biases, 0, sizeof(model->tcn_block.biases));
 
     // Initialize Output Layer
     initialize_weights(model->output_layer.weights, sizeof(model->output_layer.weights)/sizeof(float), TCN_CHANNELS);
     memset(model->output_layer.biases, 0, sizeof(model->output_layer.biases));
 
     // Initialize Output Layer Adam state
-    memset(model->output_layer.m_weights, 0, sizeof(model->output_layer.m_weights));
-    memset(model->output_layer.v_weights, 0, sizeof(model->output_layer.v_weights));
-    memset(model->output_layer.m_biases, 0, sizeof(model->output_layer.m_biases));
-    memset(model->output_layer.v_biases, 0, sizeof(model->output_layer.v_biases));
+    memset(model->output_layer.m_weights, 0, sizeof(model->output_layer.weights));
+    memset(model->output_layer.v_weights, 0, sizeof(model->output_layer.weights));
+    memset(model->output_layer.m_biases, 0, sizeof(model->output_layer.biases));
+    memset(model->output_layer.v_biases, 0, sizeof(model->output_layer.biases));
 }
 
 void save_model(const Model* model, const char* file_path) {
@@ -53,10 +53,8 @@ void save_model(const Model* model, const char* file_path) {
         return;
     }
 
-    // --- Safe, Field-by-Field Writing ---
-    // This prevents memory alignment issues by writing each array individually,
-    // creating a packed file that the loader can read safely.
-    // We only write the weights and biases, to match the InferenceModel format.
+    // Field-by-field writing to prevent padding issues.
+    // Only save weights/biases for the inference model.
 
     // Write TCN block weights and biases
     fwrite(model->tcn_block.weights, sizeof(model->tcn_block.weights), 1, fp);
@@ -66,7 +64,7 @@ void save_model(const Model* model, const char* file_path) {
     fwrite(model->output_layer.weights, sizeof(model->output_layer.weights), 1, fp);
     fwrite(model->output_layer.biases, sizeof(model->output_layer.biases), 1, fp);
     
-    // Diagnostic: Print what we're saving
+    // Diagnostic: show saved weights
     printf("[SAVE DIAGNOSTIC] Saving output layer weights:\n");
     for (int i = 0; i < 5; ++i) {
         printf("  weight[%d]: %.6f\n", i, model->output_layer.weights[i]);
@@ -74,19 +72,17 @@ void save_model(const Model* model, const char* file_path) {
     printf("  bias[0]: %.6f\n", model->output_layer.biases[0]);
 
     fclose(fp);
-    printf("Model saved to %s in a safe, packed format.\n", file_path);
+    printf("Model saved to %s.\n", file_path);
 }
 
 int load_inference_model(InferenceModel* model, const char* file_path) {
     FILE* fp = fopen(file_path, "rb");
     if (!fp) {
-        perror("Failed to open model file for reading");
+        perror("Failed to open model file");
         return 0; // File not found or error
     }
 
-    // --- Safe, Field-by-Field Reading ---
-    // This prevents memory alignment issues by reading directly into each array,
-    // respecting any padding the compiler might have added to the structs.
+    // Field-by-field reading to prevent padding issues.
 
     // Read TCN block weights and biases
     size_t tcn_weights_read = fread(model->tcn_block.weights, sizeof(model->tcn_block.weights), 1, fp);
@@ -109,8 +105,8 @@ int load_inference_model(InferenceModel* model, const char* file_path) {
     return success;
 }
 
-// --- Activation Functions ---
-// Using Leaky ReLU to prevent the 'Dying ReLU' problem
+// Activation Functions
+// Leaky ReLU to prevent dying ReLU problem
 float leaky_relu(float x) {
     return x > 0 ? x : 0.01f * x;
 }
@@ -130,7 +126,7 @@ static void softmax(float* input, float* output, size_t size) {
     for (size_t i = 0; i < size; ++i) output[i] /= sum_exp;
 }
 
-// --- Forward Pass (Inference) ---
+// Forward Pass (Inference)
 void forward_pass_inference(const InferenceModel* model, const float* input_data, float* final_output) {
     const int TCN_DILATION = 2; // TODO: This should be sourced from the header
     // Note: This function is simplified and does not store intermediate values
@@ -179,7 +175,7 @@ void forward_pass_inference(const InferenceModel* model, const float* input_data
     softmax(output_logits, final_output, NUM_CLASSES);
 }
 
-// --- Forward Pass (Training) ---
+// Forward Pass (Training)
 void forward_pass(Model* model, const float* input_sequence, int epoch, int sample_idx) {
     // 1. TCN Block (Causal Convolution -> Leaky ReLU)
     for (int out_c = 0; out_c < TCN_CHANNELS; ++out_c) {
@@ -222,7 +218,7 @@ void forward_pass(Model* model, const float* input_sequence, int epoch, int samp
     softmax(final_layer_output, model->output_layer.output, NUM_CLASSES);
 }
 
-// --- Backward Pass ---
+// Backward Pass
 void zero_gradients(Model* model) {
     memset(model->tcn_block.grad_weights, 0, sizeof(model->tcn_block.grad_weights));
     memset(model->tcn_block.grad_biases, 0, sizeof(model->tcn_block.grad_biases));
@@ -291,7 +287,7 @@ void backward_pass(Model* model, const float* input_sequence, const int* target_
 }
 
 
-// --- Optimizer ---
+// Optimizer
 void update_weights(Model* model, float learning_rate, float beta1, float beta2, float epsilon, int timestep) {
     // Bias correction terms
     float beta1_t = powf(beta1, timestep);
@@ -355,23 +351,23 @@ void update_weights(Model* model, float learning_rate, float beta1, float beta2,
     zero_gradients(model);
 }
 
-// --- Data Loading with Overlapping Windows ---
+// Data Loading
 
 
 
-#define WINDOW_STRIDE 5 // Create a new window every 5 frames
+#define WINDOW_STRIDE 5 // Stride for overlapping windows
 
 int load_temporal_data(const char* dir_path, const char** gestures, int num_gestures, float** out_data, int** out_labels, int* out_num_sequences) {
     char path[1024];
     int total_sequences = 0;
 
-    // --- First Pass: Count total possible sequences ---
-    printf("Starting pass 1: Counting sequences...\n");
+    // Count sequences
+    printf("Counting sequences...\n");
     for (int i = 0; i < num_gestures; i++) {
         snprintf(path, sizeof(path), "%s/%s", dir_path, gestures[i]);
         DIR *d = opendir(path);
         if (!d) {
-            fprintf(stderr, "Warning: Could not open directory %s\n", path);
+            printf("Warning: Could not open directory %s\n", path);
             continue;
         }
         struct dirent *dir;
@@ -411,8 +407,8 @@ int load_temporal_data(const char* dir_path, const char** gestures, int num_gest
         return -1; 
     }
 
-    // --- Second Pass: Read data into memory ---
-    printf("Starting pass 2: Loading data...\n");
+    // Pass 2: Load data
+    printf("Pass 2: Loading data...\n");
     int current_sequence_idx = 0;
     for (int i = 0; i < num_gestures; i++) {
         snprintf(path, sizeof(path), "%s/%s", dir_path, gestures[i]);
@@ -437,7 +433,7 @@ int load_temporal_data(const char* dir_path, const char** gestures, int num_gest
 
             if (frame_count == 0) { fclose(file); continue; }
 
-            // Dynamically allocate a buffer of the exact size needed
+            // Allocate buffer for file contents
             float* temp_frames = (float*)malloc(frame_count * INPUT_SIZE * sizeof(float));
             if (temp_frames == NULL) { 
                 perror("Failed to allocate temp buffer");
@@ -445,7 +441,7 @@ int load_temporal_data(const char* dir_path, const char** gestures, int num_gest
                 continue; 
             }
 
-            // Read all frames into the correctly sized buffer
+            // Read frames into buffer
             int current_frame = 0;
             while (fgets(line, sizeof(line), file) && current_frame < frame_count) {
                 char* token = strtok(line, ",");
@@ -457,11 +453,11 @@ int load_temporal_data(const char* dir_path, const char** gestures, int num_gest
             }
             fclose(file);
 
-            // Create overlapping windows from the buffer
+            // Create overlapping windows
             if (frame_count >= SEQUENCE_LENGTH) {
                 for (int start_frame = 0; start_frame <= frame_count - SEQUENCE_LENGTH; start_frame += WINDOW_STRIDE) {
                     if (current_sequence_idx >= total_sequences) {
-                        fprintf(stderr, "Error: About to write out of bounds! Check counting logic.\n");
+                        fprintf(stderr, "Error: Out of bounds write imminent. Check counting logic.\n");
                         break;
                     }
                     float* data_ptr = &((*out_data)[current_sequence_idx * SEQUENCE_LENGTH * INPUT_SIZE]);
@@ -476,13 +472,13 @@ int load_temporal_data(const char* dir_path, const char** gestures, int num_gest
     }
 
     *out_num_sequences = current_sequence_idx;
-    printf("Pass 2 complete. Successfully loaded and augmented data into %d sequences.\n", *out_num_sequences);
+    printf("Pass 2 complete. Loaded %d sequences.\n", *out_num_sequences);
 
 
     return 0; // Success
 }
 
-// --- Data Preparation ---
+// Data Preparation
 
 void shuffle_indices(int* indices, int num_samples) {
     for (int i = num_samples - 1; i > 0; i--) {

@@ -15,7 +15,7 @@ TRAINING_VENV = os.path.join(PROJECT_ROOT, "Python_Hand_Tracker", "venv_training
 SIM_DIR = os.path.join(PROJECT_ROOT, "RA8D1_Simulation")
 
 def run_command(command, cwd=PROJECT_ROOT):
-    """Runs a command and yields its output line by line."""
+    """Run a command and yield its output."""
     process = subprocess.Popen(
         command, 
         stdout=subprocess.PIPE, 
@@ -32,81 +32,79 @@ def run_command(command, cwd=PROJECT_ROOT):
         raise subprocess.CalledProcessError(return_code, command)
 
 def run_setup():
-    """Runs the full project setup process."""
+    """Run the full project setup."""
     try:
-        yield "--- Starting Project Setup ---\n"
+        yield "Starting project setup...\n"
         
         # Check for Python 3.11
-        yield "[INFO] Checking for Python 3.11...\n"
+        yield "Checking for Python 3.11...\n"
         if "3.11" not in sys.version:
-             yield f"[WARNING] You are running Python {sys.version}. The project uses 3.11. Proceeding, but errors may occur.\n"
+             yield f"Warning: Running Python {sys.version}, not 3.11. Errors may occur.\n"
         else:
-            yield "[SUCCESS] Python 3.11 found.\n"
+            yield "Python 3.11 found.\n"
 
         # Create Training Venv
-        yield "\n[INFO] Creating Python virtual environment for training...\n"
+        yield "\nCreating training venv...\n"
         yield from run_command(f'python3.11 -m venv "{TRAINING_VENV}"')
-        yield "[SUCCESS] Training virtual environment created.\n"
+        yield "Training venv created.\n"
 
         # Install Training Dependencies
-        yield "\n[INFO] Installing training dependencies...\n"
+        yield "\nInstalling training dependencies...\n"
         pip_executable = os.path.join(TRAINING_VENV, 'bin', 'pip')
         req_file = os.path.join(PROJECT_ROOT, 'Python_Hand_Tracker', 'requirements_training.txt')
         yield from run_command(f'"{pip_executable}" install -r "{req_file}"')
-        yield "[SUCCESS] Training dependencies installed.\n"
+        yield "Training dependencies installed.\n"
 
         # Create Tracker Venv
-        yield "\n[INFO] Creating Python virtual environment for tracking...\n"
+        yield "\nCreating tracking venv...\n"
         yield from run_command(f'python3.11 -m venv "{TRACKER_VENV}"')
-        yield "[SUCCESS] Tracker virtual environment created.\n"
+        yield "Tracking venv created.\n"
 
         # Install Tracker Dependencies
-        yield "\n[INFO] Installing tracking dependencies...\n"
+        yield "\nInstalling tracking dependencies...\n"
         pip_executable = os.path.join(TRACKER_VENV, 'bin', 'pip')
         req_file = os.path.join(PROJECT_ROOT, 'Python_Hand_Tracker', 'requirements_tracker.txt')
         yield from run_command(f'"{pip_executable}" install -r "{req_file}"')
-        yield "[SUCCESS] Tracking dependencies installed.\n"
+        yield "Tracking dependencies installed.\n"
 
         # Build C Simulation
-        yield "\n[INFO] Building C simulation...\n"
+        yield "\nBuilding C simulation...\n"
         yield from run_command('make clean && make', cwd=SIM_DIR)
-        yield "[SUCCESS] C simulation built.\n"
+        yield "C simulation built.\n"
 
-        yield "\n--- Setup Complete! ---\n"
+        yield "\nSetup complete!\n"
 
     except subprocess.CalledProcessError as e:
-        yield f"\n[ERROR] A command failed with exit code {e.returncode}.\n"
+        yield f"\nError: Command failed (exit code {e.returncode}).\n"
         yield str(e)
     except Exception as e:
-        yield f"\n[ERROR] An unexpected error occurred: {str(e)}\n"
+        yield f"\nError: An unexpected error occurred: {e}\n"
 
 
-# --- Data Normalization ---
+# Data Normalization
 
 def normalize_landmarks(landmarks_np):
-    """Normalizes a numpy array of landmarks.
-    Helper function to be used by both inference and data collection.
-    """
-    # 1. Normalize by subtracting the wrist (landmark 0) position
+    """Normalize landmarks for inference and data collection."""
+    # Set wrist as origin
     origin = landmarks_np[0].copy()
     relative_landmarks = landmarks_np - origin
 
-    # 2. Calculate scale factor (average distance from origin)
+    # Calculate scale factor (avg distance from origin)
     distances = np.linalg.norm(relative_landmarks, axis=1)
     scale_factor = np.mean(distances)
     if scale_factor < 1e-6: # Avoid division by zero
         scale_factor = 1
 
-    # 3. Scale the data
+    # Scale data
     normalized_landmarks = relative_landmarks / scale_factor
 
-    # 4. Exclude the wrist landmark (it's the origin) and flatten
-    return normalized_landmarks[1:].flatten().tolist()
+    # Flatten and return all 21 landmarks
+    return normalized_landmarks.flatten().tolist()
 
-# --- Hand Tracking and Data Collection ---
+# Hand Tracking and Data Collection
 
 class HandTracker:
-    """Manages camera, hand detection, and data collection logic."""
+    """Manage camera, hand detection, and data collection."""
 
     def __init__(self):
         self.mp_hands = mp.solutions.hands
@@ -124,9 +122,7 @@ class HandTracker:
 
 
     def get_landmark_data(self, hand_landmarks):
-        """Extracts and normalizes hand landmarks for inference.
-        Returns normalized data ready for the C server (60 floats).
-        """
+        """Extract and normalize hand landmarks for inference."""
         if not hand_landmarks:
             return None
         
@@ -137,7 +133,7 @@ class HandTracker:
         return normalize_landmarks(landmarks_np)
 
     def process_frame(self, frame):
-        """Processes a single video frame, finds, and draws hand landmarks."""
+        """Process a video frame to find and draw hand landmarks."""
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.hands.process(frame_rgb)
 
@@ -151,11 +147,11 @@ class HandTracker:
         return hand_landmarks, frame # Return landmarks and the (possibly annotated) frame
 
     def draw_landmarks(self, frame, hand_landmarks):
-        """Draws landmarks and connections on the frame."""
+        """Draw landmarks and connections on the frame."""
         self.mp_drawing.draw_landmarks(frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
 
     def save_data(self, gesture, data):
-        """Saves a gesture sequence to a new CSV file."""
+        """Save a gesture sequence to a new CSV file."""
         gesture_dir = os.path.join(self.DATA_DIR, gesture)
         os.makedirs(gesture_dir, exist_ok=True)
         
@@ -180,13 +176,10 @@ class HandTracker:
         return 1
 
 
-# --- Gesture Prediction ---
+# Gesture Prediction
 
 class GesturePredictor:
-    """
-    Manages communication with the C-based inference server to get temporal
-    gesture predictions from a sequence of landmark data using a persistent connection.
-    """
+    """Get temporal gesture predictions from the C inference server."""
     def __init__(self):
         self.host = 'localhost'
         self.port = 65432
@@ -204,7 +197,7 @@ class GesturePredictor:
         self._connect() # Establish initial connection
 
     def _connect(self):
-        """Establishes or re-establishes the persistent connection to the C server."""
+        """Connect (or reconnect) to the C server."""
         self.cleanup(is_reconnecting=True)
         try:
             print("[GesturePredictor] Attempting to connect to C inference server...")
@@ -232,7 +225,7 @@ class GesturePredictor:
             return self.last_prediction, self.last_confidence
 
         # A hand is present, so add the new data to our buffer.
-        # landmark_data is already normalized and contains 60 floats (20 landmarks × 3 coords)
+        # landmark_data is already normalized and contains 63 floats (21 landmarks × 3 coords)
         self.sequence_buffer.append(landmark_data)
         self.frame_counter += 1
         
@@ -240,13 +233,13 @@ class GesturePredictor:
         if len(self.sequence_buffer) > self.sequence_length:
             self.sequence_buffer.pop(0)
 
-        # Only proceed if we have a full sequence AND we're at a stride boundary
+        # Ensure full sequence at a stride boundary
         if len(self.sequence_buffer) < self.sequence_length:
             return "Collecting data...", 0.0
         
-        # Only make predictions every WINDOW_STRIDE frames to match training pattern
+        # Predict every WINDOW_STRIDE frames to match training
         if (self.frame_counter - self.sequence_length) % self.window_stride != 0:
-            # Skip inference, return last known prediction to keep UI stable
+            # Return last prediction to keep UI stable
             return self.last_prediction, self.last_confidence
 
         if not self.client_socket or not self.rfile:
@@ -255,35 +248,32 @@ class GesturePredictor:
                 return "Connecting...", 0.0
 
         try:
-            # 1. Flatten the sequence buffer - data is already normalized
-            # Each frame has 60 floats, so total should be 20 frames × 60 floats = 1200 floats
+            # Flatten sequence buffer (20 frames * 60 floats = 1200 floats)
             normalized_sequence = []
             for frame_landmarks in self.sequence_buffer:
                 normalized_sequence.extend(frame_landmarks)
 
-            # Verify we have the expected amount of data
-            expected_size = self.sequence_length * 60  # 20 frames × 60 floats per frame
+            # Verify data size
+            expected_size = self.sequence_length * 63  # 20 frames × 63 floats per frame
             if len(normalized_sequence) != expected_size:
                 print(f"[GesturePredictor] Data size mismatch: got {len(normalized_sequence)}, expected {expected_size}")
                 return "Data Error", 0.0
 
-            # 2. Format data for sending as a raw binary stream of floats
-            # The format string consists of a float 'f' for each value in the sequence.
-            # '!' ensures network byte order (big-endian).
+            # Pack data as binary stream of floats (network byte order)
             format_string = '!' + 'f' * len(normalized_sequence)
             data_bytes = struct.pack(format_string, *normalized_sequence)
 
-            # 3. Pack message with length prefix and send
+            # Prepend message length and send
             msg_len = len(data_bytes)
             len_prefix = struct.pack('!I', msg_len) # Pack as 4-byte unsigned int, network byte order
             self.client_socket.sendall(len_prefix + data_bytes)
 
-            # 4. Read response
+            # Read response
             response = self.client_socket.recv(1024).decode('utf-8').strip()
 
-            # 5. Parse and return the prediction
+            # Parse and return prediction
             if not response:
-                # This can happen if the server closes the connection cleanly
+                # Server closed connection
                 print("[GesturePredictor] Empty response from server. Reconnecting...")
                 self._connect()
                 return "Connecting...", 0.0
@@ -306,11 +296,11 @@ class GesturePredictor:
             return "Connecting...", 0.0
         except Exception as e:
             print(f"[GesturePredictor] An error occurred during prediction: {e}")
-            # Don't reconnect on general errors, could be a data issue
+            # Don't reconnect on general errors (could be data issue)
             return "Error", 0.0
 
     def cleanup(self, is_reconnecting=False):
-        """Cleans up resources for the GesturePredictor, closing the socket."""
+        """Close the socket and clean up resources."""
         if not is_reconnecting:
             print("Cleaning up GesturePredictor...")
         

@@ -8,7 +8,7 @@
 
 ## Summary of Accomplishments
 
-The project delivered a robust, end-to-end solution for building, testing, and validating a custom temporal gesture model for an embedded target. The final application provides a seamless experience for managing the entire ML workflow.
+The project delivered a robust, end-to-end solution for building, testing, and validating a custom temporal gesture model for an embedded target. The final application provides a seamless experience for managing the entire data processing workflow.
 
 ### Key Features Delivered:
 
@@ -20,7 +20,7 @@ The project delivered a robust, end-to-end solution for building, testing, and v
 
 -   **✅ Validated Learning**: A rigorous sanity check (label shuffling) was implemented, proving that the model's high accuracy comes from genuine learning, not from bugs or memorization.
 
--   **✅ Unified GUI Application**: A single, intuitive PyQt6 interface for the entire ML pipeline, from data collection to real-time inference.
+-   **✅ Unified GUI Application**: A single, intuitive PyQt6 interface for the entire data processing pipeline, from data collection to real-time inference.
 
 -   **✅ Live Training Log Viewer**: The training page streams log output directly from the C training executable, providing immediate feedback.
 
@@ -40,7 +40,7 @@ The project delivered a robust, end-to-end solution for building, testing, and v
 
 4.  **Model Optimization and Validation**: The final, critical phase involved aggressively shrinking the model to a 2-channel TCN and then proving its learning was genuine with a label-shuffling sanity check. This ensured the final model was not just accurate but also efficient and trustworthy.
 
-This represents the **complete realization** of the original embedded ML simulation concept, elevated to handle the more complex and powerful domain of temporal gesture recognition.
+This represents the **complete realization** of the original embedded simulation concept, elevated to handle the more complex and powerful domain of temporal gesture recognition.
 
 ---
 

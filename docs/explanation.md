@@ -54,6 +54,7 @@ This is the inference server, designed for real-time performance and robust comm
 -   **TCP Server**: Implements a persistent, single-client TCP server that listens on port `65432`.
 -   **Length-Prefix Protocol**: To handle TCP's stream-based nature, the server expects each message to be prefixed with a 4-byte unsigned integer specifying the payload length. It reads this header first, then reads exactly that many bytes to ensure it receives a complete and uncorrupted data frame.
 -   **Network Byte Order**: The server correctly converts the incoming byte stream from network byte order (big-endian) to the host system's byte order using `ntohl` (network-to-host-long). This is critical for cross-platform compatibility with the Python client.
+-   **Model Loading and Lifecycle**: The server attempts to load `c_model.bin` only once upon startup. If the file is missing, it runs in a "no model" state. Because it does not automatically reload the model, the Python GUI is responsible for restarting this server process after training is complete to force it to load the new model file.
 
 ---
 
@@ -66,7 +67,7 @@ The Python application, built with PyQt6, manages the user workflow, handles dat
 This file contains the core business logic for the frontend, connecting the UI to the underlying data processing and communication protocols.
 
 -   **`normalize_landmarks`**: This is the heart of the Python data pipeline and a critical component for the system's accuracy. It performs a two-step normalization process on the raw landmark data from MediaPipe:
-    1.  **Translation Invariance**: It subtracts the wrist's (landmark 0) coordinates from all other landmarks, making the gesture's representation independent of its position in the camera frame.
+    1.  **Translation Invariance**: It subtracts the wrist's (landmark 0) coordinates from all other landmarks, making the gesture's representation independent of its position in the camera frame. The wrist coordinates themselves (now `0,0,0`) are included in the final data sent to the model.
     2.  **Scale Invariance**: It calculates the average distance of all landmarks from the new origin (the wrist) and divides all coordinates by this scale factor. This makes the gesture's representation robust to changes in hand size or distance from the camera.
 -   **`HandTracker` Class**: A wrapper around the MediaPipe library. Its primary role is to process video frames, detect hand landmarks, and pass the raw landmark data to the `normalize_landmarks` function.
 -   **`GesturePredictor` Class**: This class manages all communication with the C inference server.
@@ -77,4 +78,4 @@ This file contains the core business logic for the frontend, connecting the UI t
 
 ### `gui_app/main_app.py` (and other page files)
 
-These files define the PyQt6 user interface. They are responsible for displaying the camera feed, rendering predictions, and connecting UI button clicks (e.g., "Start Training") to the backend logic functions in `logic.py` and the C executables. They form the user-facing layer but delegate all complex processing and computation to the other components.
+These files define the PyQt6 user interface. They are responsible for displaying the camera feed, rendering predictions, and connecting UI button clicks (e.g., "Start Training") to the backend logic functions in `logic.py` and the C executables. They form the user-facing layer but delegate all complex processing and computation to the other components. A key responsibility of the `training_page.py` module is to manage the lifecycle of the C inference server, automatically restarting it after a successful training run to ensure the newly generated model is loaded.

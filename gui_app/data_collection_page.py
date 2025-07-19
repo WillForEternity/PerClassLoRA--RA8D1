@@ -8,7 +8,7 @@ import time
 from gui_app.logic import HandTracker
 
 class CameraWorker(QThread):
-    """Worker thread for handling camera input and hand tracking."""
+    """Worker for camera input and hand tracking."""
     new_frame = pyqtSignal(np.ndarray)
     collection_update = pyqtSignal(int)
     collection_finished = pyqtSignal(str, int)
@@ -35,7 +35,6 @@ class CameraWorker(QThread):
 
             hand_landmarks, annotated_frame = self.hand_tracker.process_frame(frame)
             if hand_landmarks:
-                # The process_frame now returns a single hand_landmarks object
                 self.hand_tracker.draw_landmarks(annotated_frame, hand_landmarks)
                 if self._collecting and len(collected_data) < self.samples_to_collect:
                     current_time = time.time()
@@ -65,7 +64,7 @@ class CameraWorker(QThread):
         self.wait()
 
 class DataCollectionPage(QWidget):
-    # Signal to control the main window's navigation
+    # Signal to enable/disable main window navigation
     set_navigation_enabled = pyqtSignal(bool)
 
     def __init__(self):
