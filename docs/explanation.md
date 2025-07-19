@@ -6,9 +6,73 @@ In this document, I'll provide a comprehensive, file-by-file technical explanati
 
 Before dissecting each file, I should explain the core concepts that govern the system.
 
-1.  **Temporal Convolutional Network (TCN)**: I chose a TCN for the model, a specialized neural network architecture designed for sequence data. Unlike RNNs, TCNs use causal, dilated convolutions to process sequences in parallel, which made them a computationally efficient choice for capturing long-range dependencies in the gesture data.
+1.  **Temporal Convolutional Network (TCN)**: I chose a TCN for the model, a specialized neural network architecture designed for sequence data. Unlike RNNs, TCNs use causal, dilated convolutions to process sequences in parallel, which made them a computationally efficient choice for capturing long-range dependencies in the gesture data. My implementation uses a single TCN block with 8 channels and a kernel size of 3, followed by Leaky ReLU activation and Global Average Pooling.
 
 2.  **Hybrid Architecture (Python + C)**: I designed a hybrid architecture to intentionally separate high-level orchestration (Python) from performance-critical computation (C). I used Python's rich ecosystem for the GUI and data handling, while I wrote the ML engine in C to be minimal, high-performance, and memory-efficient, making it suitable for my embedded target.
+
+3.  **Post-Training Quantization**: To optimize the model for the Renesas RA8D1, I implemented a full post-training quantization workflow. This process converts the model's 32-bit floating-point weights into efficient 8-bit integers (INT8). This dramatically reduces the model's memory footprint and can accelerate inference, which is critical for resource-constrained devices. The entire workflow—from quantization to inference with the quantized model—is integrated into the GUI.
+
+4.  **Static Memory Allocation**: A core principle of the C backend is static memory allocation. All memory required for the model, its gradients, and optimizer state is allocated at compile time using C `structs`. This approach eliminates dynamic memory allocation (`malloc`, `free`), preventing memory fragmentation and ensuring predictable, deterministic memory usage—a hard requirement for reliable embedded systems.
+
+## File-by-File Breakdown
+
+Here, I'll walk through the key files and directories, explaining their purpose and implementation.
+
+### `start_app.sh`
+
+This is the master script that orchestrates the entire application lifecycle. Its primary responsibilities are:
+- **Environment Validation**: It checks for the existence of the C executables and the Python virtual environment, providing user-friendly error messages if they are missing.
+- **Process Cleanup**: Before starting, it uses `lsof` to find and terminate any zombie processes that might be lingering on the required network port (65432), preventing "Address already in use" errors.
+- **GUI Launch**: It activates the Python virtual environment and launches the main GUI application (`gui_app/main_app.py`).
+- **Graceful Shutdown**: It sets up a `trap` to catch exit signals (like Ctrl+C), ensuring that any running child processes (like the C server) are properly terminated when the application closes.
+
+### `gui_app/` - The Python GUI
+
+This directory contains the entire PyQt6 frontend application.
+
+#### `main_app.py`
+This is the entry point for the GUI. It constructs the main window and sets up the five-page navigation system using a `QStackedWidget`. The pages are: `Setup`, `Data Collection`, `Training`, `Quantize`, and `Inference`. It connects signals between the pages to manage application state, such as enabling/disabling navigation during long-running tasks.
+
+#### `logic.py`
+This file is the heart of the Python-side logic, containing the core classes that interact with MediaPipe and the C backend.
+
+-   **`HandTracker`**: This class manages all aspects of hand detection and data collection. It initializes a MediaPipe `Hands` object to get the 21 3D hand landmarks from the camera feed. For each frame, it normalizes the landmark data by setting the wrist as the origin (0,0,0) and scaling the coordinates based on the average distance of all landmarks from the origin. This makes the data translation- and scale-invariant. Its `save_data` method now appends new recordings to a single, consolidated CSV file for each gesture, simplifying data management.
+
+-   **`GesturePredictor`**: This class handles real-time inference. It establishes a persistent TCP socket connection to the C inference server. Its `predict` method sends normalized landmark data (as a flat binary buffer) to the server. To match the training pipeline, it uses a stride of 5, only sending data every fifth frame. It then reads the response (prediction index and confidence), handles connection errors gracefully by attempting to reconnect, and caches the last prediction to keep the GUI display stable.
+
+-   **`Quantizer`**: This class provides a non-blocking wrapper around the C `quantize` executable. It uses PyQt's `QProcess` to run the C program in the background, capturing its standard output in real-time and emitting signals to update the GUI. This prevents the GUI from freezing during the quantization process.
+
+#### The Page Files (`training_page.py`, `inference_page.py`, etc.)
+Each page script manages a specific part of the workflow. Key implementations include:
+-   `training_page.py`: Launches the C `train_c` executable. It now dynamically loads the user-defined gesture list from `gestures.json` and passes the names as command-line arguments to the C program.
+-   `quantize_page.py`: Uses the `Quantizer` class from `logic.py` to run the quantization process and display the output.
+-   `inference_page.py`: Manages the lifecycle of the C inference server (`ra8d1_sim`). It starts the server when the page is loaded and provides a dropdown menu for the user to select between the float (`c_model.bin`) and quantized (`c_model_quantized.bin`) models. It passes the chosen model path to the server as a command-line argument.
+
+### `RA8D1_Simulation/` - The C Backend
+
+This directory contains the high-performance C code for all machine learning tasks.
+
+#### `training_logic.h`
+This header file is the single source of truth for the system's data structures. It defines:
+-   **`Model`**: The main struct for training. It contains arrays for weights, biases, gradients, and the Adam optimizer's internal state (`m` and `v` moments) for both the TCN and output layers.
+-   **`InferenceModel`**: A lightweight version of the `Model` struct, containing only the weights and biases needed for a forward pass. This is what the inference server uses to minimize its memory footprint.
+-   **`QuantizedModel`**: A struct containing `int8_t` arrays for the quantized weights and biases.
+-   A `static_assert` that checks the `sizeof(Model)` against the `APP_SRAM_LIMIT` at compile time, providing an immediate failure if the model grows too large for the target MCU.
+
+#### `training_logic.c`
+This file contains the core implementation of the TCN model.
+-   `load_temporal_data`: Implements a two-pass sliding window algorithm to read the gesture data. In the first pass, it counts the total number of valid sequences across all gesture files. In the second pass, it allocates memory and populates the data and label arrays. It now reads from a single, consolidated CSV file per gesture.
+-   `forward_pass`: Executes the TCN forward pass: a causal, dilated convolution, followed by a Leaky ReLU activation and Global Average Pooling across the time dimension.
+-   `backward_pass` & `update_weights`: Implement the backpropagation-through-time algorithm and the Adam optimizer to update the model's weights based on the calculated gradients.
+
+#### `train_in_c.c`
+This is the `main` function for the training executable. It now parses command-line arguments to get the list of gestures to train on. It calls `load_temporal_data` to load the data, then iterates through the training epochs, calling the `forward_pass`, `backward_pass`, and `update_weights` functions. Finally, it saves the trained weights to `c_model.bin`.
+
+#### `quantize.c`
+This is the `main` function for the quantization executable. It loads the float model (`c_model.bin`), converts its weights to `int8_t` using simple symmetric quantization (`value * 127`), and saves the result to `c_model_quantized.bin`. It also prints the size of the original and quantized models to show the memory savings.
+
+#### `main.c`
+This is the `main` function for the inference server. It accepts a command-line argument specifying which model file to use. It dynamically detects whether to load a float or quantized model based on the filename. It then enters a loop, listening for incoming TCP connections, reading the landmark data, running the appropriate forward pass (`forward_pass_inference` or `forward_pass_quantized`), and sending the prediction back to the Python client.
 
 3.  **Static Memory Allocation**: For embedded readiness, I used 100% static memory allocation in the C backend. I allocate all required memory for the model, its gradients, and optimizer states at compile time. This eliminates the risk of memory fragmentation or allocation failures on a resource-constrained device.
 
