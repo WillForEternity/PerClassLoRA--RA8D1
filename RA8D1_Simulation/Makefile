@@ -1,43 +1,41 @@
 CC=gcc
-# Common flags, -g adds debug symbols
 CFLAGS=-Wall -g -I.
+LDFLAGS_SIM=-L/opt/homebrew/opt/onnxruntime/lib -lonnxruntime
+LDFLAGS_TRAIN=-lm
 
-# --- Target-specific variables ---
+# --- Targets ---
 SIM_TARGET=ra8d1_sim
 TRAIN_TARGET=train_c
+QUANTIZE_TARGET=quantize
 
-# Linker flags for the simulator (needs ONNX Runtime)
-SIM_LDFLAGS=-L/opt/homebrew/opt/onnxruntime/lib -lonnxruntime
-# Linker flags for the trainer (needs math library for functions like exp, sqrt)
-TRAIN_LDFLAGS=-lm
+# --- Source & Object Files ---
+SIM_SRCS=main.c training_logic.c
+TRAIN_SRCS=train_in_c.c training_logic.c
+QUANTIZE_SRCS=quantize.c training_logic.c
+
+SIM_OBJS=$(SIM_SRCS:.c=.o)
+TRAIN_OBJS=$(TRAIN_SRCS:.c=.o)
+QUANTIZE_OBJS=$(QUANTIZE_SRCS:.c=.o)
 
 # --- Build Rules ---
+all: $(SIM_TARGET) $(TRAIN_TARGET) $(QUANTIZE_TARGET)
 
-# Default target: build both applications
-all: $(SIM_TARGET) $(TRAIN_TARGET)
+$(SIM_TARGET): $(SIM_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS_SIM)
 
-# Dependencies
-# Both targets depend on the logic source and header
-$(TRAIN_TARGET): train_in_c.o $(LOGIC_SRC)
-$(SIM_TARGET): main.o $(LOGIC_SRC)
+$(TRAIN_TARGET): $(TRAIN_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS_TRAIN)
 
-# Rule to build the executables
-$(TRAIN_TARGET): train_in_c.o training_logic.o
-	$(CC) $(CFLAGS) -o $@ $^ -lm
-
-$(SIM_TARGET): main.o training_logic.o
-	$(CC) $(CFLAGS) -o $@ $^ -L/opt/homebrew/opt/onnxruntime/lib -lonnxruntime
+$(QUANTIZE_TARGET): $(QUANTIZE_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS_TRAIN)
 
 # Generic rule for object files
-# This ensures .o files are rebuilt if the header changes
-%.o: %.c $(LOGIC_HDR)
+%.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-# Phony targets are not files
+# --- Housekeeping ---
 .PHONY: all clean
 
-# Rule to clean build artifacts
 clean:
 	@echo "Cleaning up build artifacts..."
-	rm -rf *.dSYM
-	rm -f $(SIM_TARGET) $(TRAIN_TARGET) ra8d1_sim* train_c* simulation
+	rm -f $(SIM_TARGET) $(TRAIN_TARGET) $(QUANTIZE_TARGET) *.o *.dSYM

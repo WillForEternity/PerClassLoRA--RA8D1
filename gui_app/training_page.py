@@ -9,6 +9,8 @@ import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
+from gui_app.config import load_gestures
+
 class MplCanvas(FigureCanvas):
     """Matplotlib widget for PyQt."""
     def __init__(self, parent=None, width=5, height=4, dpi=100):
@@ -30,6 +32,13 @@ class TrainingWorker(QThread):
     """Run the C training executable."""
     new_log_message = pyqtSignal(str)
 
+    def __init__(self):
+        super().__init__()
+        self.gestures = []
+
+    def set_gestures(self, gestures):
+        self.gestures = gestures
+
     def run(self):
         self.new_log_message.emit("Initializing C training...")
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -41,9 +50,12 @@ class TrainingWorker(QThread):
             self.new_log_message.emit("Please run 'make' in the RA8D1_Simulation directory.")
             return
 
+        command = [c_executable_path] + self.gestures
+        self.new_log_message.emit(f"Running command: {' '.join(command)}")
+
         try:
             process = subprocess.Popen(
-                [c_executable_path],
+                command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -121,6 +133,14 @@ class TrainingPage(QWidget):
         self.run_button.setEnabled(False)
         self.run_button.setText("Training...")
         self.set_navigation_enabled.emit(False)
+        
+        gestures = load_gestures()
+        if not gestures:
+            self.append_log_message("Error: No gestures found. Please define gestures in the Data Collection page.")
+            self.on_training_finished()
+            return
+            
+        self.training_worker.set_gestures(gestures)
         self.training_worker.start()
 
     @pyqtSlot(str)
@@ -133,45 +153,8 @@ class TrainingPage(QWidget):
         self.run_button.setText("Start Training")
         self.set_navigation_enabled.emit(True)
         self.append_log_message("\nC training finished.")
-        self.restart_c_server()
 
-    def restart_c_server(self):
-        self.append_log_message("\n--- Restarting C Inference Server ---")
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        pid_file_path = os.path.join(project_root, ".c_server.pid")
-        log_file_path = os.path.join(project_root, "c_server.log")
-        server_executable_dir = os.path.join(project_root, "RA8D1_Simulation")
-        server_executable_path = os.path.join(server_executable_dir, "ra8d1_sim")
 
-        # 1. Stop the existing server
-        try:
-            if os.path.exists(pid_file_path):
-                with open(pid_file_path, 'r') as f:
-                    pid = int(f.read().strip())
-                self.append_log_message(f"Stopping existing server (PID: {pid})...")
-                os.kill(pid, signal.SIGTERM)
-                os.remove(pid_file_path)
-            else:
-                self.append_log_message("No existing server PID file found. Assuming server is not running.")
-        except (ProcessLookupError, ValueError, FileNotFoundError) as e:
-            self.append_log_message(f"Could not stop previous server (it may have already been stopped): {e}")
-
-        # 2. Start the new server
-        try:
-            self.append_log_message(f"Starting new server from: {server_executable_path}")
-            with open(log_file_path, 'w') as log_file:
-                process = subprocess.Popen(
-                    [server_executable_path],
-                    cwd=server_executable_dir,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT
-                )
-            # 3. Save the new PID
-            with open(pid_file_path, 'w') as f:
-                f.write(str(process.pid))
-            self.append_log_message(f"New C server started successfully (PID: {process.pid}). Logs at c_server.log")
-        except Exception as e:
-            self.append_log_message(f"Error restarting C server: {e}")
 
     def set_setup_status(self, is_complete):
         self.is_setup_complete = is_complete

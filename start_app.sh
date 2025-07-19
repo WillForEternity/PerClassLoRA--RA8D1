@@ -70,37 +70,9 @@ if [ ! -f "$PROJECT_ROOT/models/c_model.bin" ]; then
     echo -e "${YELLOW}Warning: c_model.bin not found. Please train the model first.${NC}"
 fi
 
-echo -e "${YELLOW}Step 1: Starting C inference server...${NC}"
-
-# Start the C server in the background
-cd "$C_SERVER_DIR"
-./ra8d1_sim &
-C_SERVER_PID=$!
-
-# Save the PID for cleanup
-echo "$C_SERVER_PID" > "$PID_FILE"
-
-echo "C inference server started (PID: $C_SERVER_PID)"
-
-# Wait a moment for the server to initialize
-echo "Waiting for C server to initialize..."
-sleep 3
-
-# Check if the server is still running
-if ! kill -0 "$C_SERVER_PID" 2>/dev/null; then
-    echo -e "${RED}Error: C inference server failed to start or crashed immediately.${NC}"
-    rm -f "$PID_FILE"
-    exit 1
-fi
-
-echo -e "${GREEN}✓ C inference server is running and ready${NC}"
-
-echo -e "${YELLOW}Step 2: Starting GUI application...${NC}"
+echo -e "\n${YELLOW}Starting GUI application...${NC}"
 
 # Start the GUI app
 cd "$PROJECT_ROOT"
 source "$GUI_VENV/bin/activate"
 python gui_app/main_app.py
-
-# The GUI app will run until the user closes it
-# When it exits, the cleanup function will be called automatically

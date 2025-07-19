@@ -5,11 +5,9 @@
 
 // Constants
 #define DATA_DIR "../models/data"
-const char* GESTURES[] = {"wave", "swipe_left", "swipe_right"};
-const int NUM_GESTURES = sizeof(GESTURES) / sizeof(GESTURES[0]);
 
 // Training Hyperparameters
-#define NUM_EPOCHS 500
+#define NUM_EPOCHS 150
 #define LEARNING_RATE 0.001f
 #define BETA1 0.9f
 #define BETA2 0.999f
@@ -34,7 +32,26 @@ float calculate_accuracy(const float* predictions, int target_label) {
     return (max_index == target_label) ? 1.0f : 0.0f;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    // --- Gesture Configuration ---
+    const char** GESTURES;
+    int NUM_GESTURES;
+
+    if (argc > 1) {
+        // Use gestures from command-line arguments
+        NUM_GESTURES = argc - 1;
+        GESTURES = (const char**)&argv[1];
+        printf("Received %d gestures from command line:\n", NUM_GESTURES);
+        for (int i = 0; i < NUM_GESTURES; ++i) {
+            printf("  - %s\n", GESTURES[i]);
+        }
+    } else {
+        // Fallback to default gestures
+        printf("No command-line gestures provided. Using default gestures.\n");
+        const char* default_gestures[] = {"wave", "swipe_left", "swipe_right"};
+        NUM_GESTURES = sizeof(default_gestures) / sizeof(default_gestures[0]);
+        GESTURES = default_gestures;
+    }
     printf("--- C Training Executable Started ---\n");
     printf("C-Based Model Training\n");
 
@@ -127,6 +144,8 @@ int main() {
     fflush(stdout);
     save_model(&model, "../models/c_model.bin");
     printf("[TRAINING] Model saved successfully.\n");
+    printf("[INFO] Inference model static memory footprint: %zu bytes (%.2f KB)\n", 
+           sizeof(InferenceModel), (double)sizeof(InferenceModel) / 1024.0);
     fflush(stdout);
 
     // Cleanup

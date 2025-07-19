@@ -68,6 +68,67 @@ After achieving initial success, a series of architectural changes to improve mo
 
 ---
 
+### 6. Feature Implementation: End-to-End Model Quantization
+
+Implementing the quantization workflow introduced a new set of complex, system-level challenges that required debugging across the entire stack, from the Python GUI to the C backend.
+
+-   **Problem 1: Server Lifecycle Conflict & Race Conditions.** After adding the Quantize page, the application became unstable. The C inference server would often fail to start on the Inference page, citing an "Address already in use" error. 
+    -   **Investigation:** The root cause was a design flaw in process management. The `TrainingPage` was programmed to restart the inference server after training completed. However, the `InferencePage` also managed its own server instance. This created a race condition where two parts of the application were fighting for control over the same process and network port.
+    -   **Solution:** The architecture was refactored to establish a clear separation of concerns. The responsibility for managing the inference server's lifecycle was assigned exclusively to the `InferencePage`. The conflicting restart logic was entirely removed from the `TrainingPage`, resolving the port conflicts and stabilizing the application.
+
+-   **Problem 2: C Backend Integration and Data Corruption.** Integrating the quantization logic into the C backend revealed several low-level bugs.
+    -   **Investigation:** The initial implementation was plagued with build failures and runtime errors. Key issues included: a missing `quantize.c` file in the `Makefile`, incorrect model file paths causing "file not found" errors, and, most critically, a C struct memory layout mismatch. The `QuantizedModel` struct, when written to a file, was being altered by compiler padding, leading to data corruption when it was read back.
+    -   **Solution:** A multi-part solution was required. The `Makefile` was corrected, and model paths were standardized across all C executables. To solve the data corruption, the `QuantizedModel` struct was refactored into a "flattened" layout, ensuring a contiguous block of memory and eliminating any potential for padding issues. 
+
+-   **Problem 3: Creating a Dual-Mode Inference Server.** The final challenge was to make the C inference server capable of loading and running both the original float model and the new quantized model.
+    -   **Implementation:** The server logic in `main.c` was significantly upgraded. It now detects the model type based on the filename suffix (`_quantized.bin`). A global flag, `g_is_quantized`, is set during model loading. In the main inference loop, this flag is used as a switch to call the appropriate function: `forward_pass_inference` for float models or the newly implemented `forward_pass_quantized` for integer models. This completed the feature, enabling seamless, dynamic model selection from the GUI.
+
+---
+
+### 7. GUI Crash on Gesture Editing: `AttributeError: QLineEdit.getText`
+
+**Problem:**
+After implementing the "Edit Gestures" feature, the application would crash with an `AttributeError` whenever the "Add" or "Rename" buttons were clicked in the gesture editing dialog.
+
+**Traceback:**
+```
+Traceback (most recent call last):
+  File "/Users/willnorden/Desktop/Software/Projects/Apps/PerClassLoRA/gui_app/data_collection_page.py", line 109, in add_gesture
+    new_gesture, ok = QLineEdit.getText(self, "Add Gesture", "Enter new gesture name:")
+                      ^^^^^^^^^^^^^^^^^
+AttributeError: type object 'QLineEdit' has no attribute 'getText'. Did you mean: 'setText'?
+```
+
+**Root Cause:**
+The code was attempting to call a static method `getText` on the `QLineEdit` class. This method does not exist. The intention was to open a dialog box to get text input from the user, but the wrong Qt widget was used. `QLineEdit` is for displaying and editing a single line of text within a window, not for creating pop-up input dialogs.
+
+**Solution:**
+The correct widget for this purpose is `QInputDialog`. The fix involved two steps:
+1.  **Replacing the incorrect method call:** The calls to `QLineEdit.getText(...)` were replaced with `QInputDialog.getText(...)`.
+2.  **Importing the correct class:** The `QInputDialog` class was imported from `PyQt6.QtWidgets`.
+
+This change resolved the crash and made the gesture editing feature fully functional as intended.
+
+---
+
+### 8. Training Data Integrity: Hardcoded Gesture List
+
+**Problem:**
+After consolidating gesture data into single files, the training process began exhibiting perfect accuracy (100%) and zero loss, regardless of the data. This indicated that the model was not learning correctly.
+
+**Investigation:**
+Logs from the C training executable revealed that it was only loading data for one gesture class ("wave"), even when data for other classes ("wipe", "circle", etc.) was present. A code review of `train_in_c.c` confirmed the root cause: the program used a **hardcoded array of gesture names** (`const char* GESTURES[] = {"wave", ...}`). It was completely unaware of the custom gestures defined by the user in the GUI. As a result, it only ever trained on the single class it found, leading to the misleading metrics.
+
+**Solution:**
+The training pipeline was re-architected to make the gesture list fully dynamic:
+1.  **Python GUI (`training_page.py`):** The training worker was updated to load the user-defined gesture list from the `gestures.json` configuration file.
+2.  **Dynamic Invocation:** The gesture names are now passed as **command-line arguments** when the Python script invokes the C `train_c` executable.
+3.  **C Backend (`train_in_c.c`):** The `main` function was modified to parse these command-line arguments (`argc`, `argv`). If arguments are provided, they are used as the definitive gesture list, overriding the old hardcoded array.
+
+This change ensures that the C backend always trains on the exact set of gestures defined in the GUI, resolving the data mismatch and restoring the integrity of the training process.
+
+---
+
 ## Final Outcome
 
 All major blockers were resolved. The C-based TCN backend is numerically stable, adheres to embedded memory constraints, and communicates flawlessly with the Python frontend. The project successfully demonstrates a production-ready workflow for developing and deploying advanced temporal models on resource-constrained hardware.

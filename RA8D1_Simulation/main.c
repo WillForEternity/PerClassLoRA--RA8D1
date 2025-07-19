@@ -12,27 +12,50 @@
 #define INPUT_BUFFER_SIZE (SEQUENCE_LENGTH * INPUT_SIZE)
 
 // Globals
-InferenceModel g_model;
-int g_model_loaded = 0; // Flag to check if model is loaded
+InferenceModel g_float_model;
+QuantizedModel g_quantized_model;
+int g_model_loaded = 0;
+int g_is_quantized = 0; // Flag to check if the loaded model is quantized
 float g_hand_landmark_data[SEQUENCE_LENGTH * INPUT_SIZE]; // Inference data buffer
 const char* g_gesture_labels[NUM_CLASSES] = {"wave", "swipe_left", "swipe_right"};
 
 // Main
-int main() {
+int main(int argc, char* argv[]) {
     printf("Initializing C model...\n");
 
-    const char* model_path = "../models/c_model.bin";
-    if (!load_inference_model(&g_model, model_path)) {
-        fprintf(stderr, "[SERVER WARNING] Model file not found. Server is running without a model.\n");
-        g_model_loaded = 0;
+    // Determine model path: use argument or default
+    const char* model_path = (argc > 1) ? argv[1] : "../models/c_model.bin";
+    printf("Loading model from: %s\n", model_path);
+
+    // Check model type and load accordingly
+    if (strstr(model_path, "_quantized.bin") != NULL) {
+        printf("Loading Quantized Model...\n");
+        if (!load_quantized_model(&g_quantized_model, model_path)) {
+            fprintf(stderr, "[SERVER WARNING] Quantized model file not found. Server running without a model.\n");
+            g_model_loaded = 0;
+        } else {
+            g_model_loaded = 1;
+            g_is_quantized = 1;
+            printf("[DIAGNOSTIC] Quantized model loaded successfully. Sample weights:\n");
+            printf("[DIAGNOSTIC] TCN weight[0]: %d\n", g_quantized_model.tcn_block_weights[0]);
+            printf("[DIAGNOSTIC] TCN bias[0]: %d\n", g_quantized_model.tcn_block_biases[0]);
+            printf("[DIAGNOSTIC] Output weight[0]: %d\n", g_quantized_model.output_layer_weights[0]);
+            printf("[DIAGNOSTIC] Output bias[0]: %d\n", g_quantized_model.output_layer_biases[0]);
+        }
     } else {
-        g_model_loaded = 1;
-        // Diagnostic: Print loaded model weights
-        printf("[DIAGNOSTIC] Model loaded successfully. Sample weights:\n");
-        printf("[DIAGNOSTIC] TCN weight[0]: %.6f\n", g_model.tcn_block.weights[0]);
-        printf("[DIAGNOSTIC] TCN bias[0]: %.6f\n", g_model.tcn_block.biases[0]);
-        printf("[DIAGNOSTIC] Output weight[0]: %.6f\n", g_model.output_layer.weights[0]);
-        printf("[DIAGNOSTIC] Output bias[0]: %.6f\n", g_model.output_layer.biases[0]);
+        printf("Loading Float Model...\n");
+        if (!load_inference_model(&g_float_model, model_path)) {
+            fprintf(stderr, "[SERVER WARNING] Float model file not found. Server running without a model.\n");
+            g_model_loaded = 0;
+        } else {
+            g_model_loaded = 1;
+            g_is_quantized = 0;
+            printf("[DIAGNOSTIC] Float model loaded successfully. Sample weights:\n");
+            printf("[DIAGNOSTIC] TCN weight[0]: %.6f\n", g_float_model.tcn_block.weights[0]);
+            printf("[DIAGNOSTIC] TCN bias[0]: %.6f\n", g_float_model.tcn_block.biases[0]);
+            printf("[DIAGNOSTIC] Output weight[0]: %.6f\n", g_float_model.output_layer.weights[0]);
+            printf("[DIAGNOSTIC] Output bias[0]: %.6f\n", g_float_model.output_layer.biases[0]);
+        }
     }
 
     int server_fd, new_socket;
@@ -108,18 +131,23 @@ int main() {
             }
             printf("\n");
             
-            // Run inference only if model is loaded
+            // Run inference only if a model is loaded
             float prediction_output[NUM_CLASSES] = {0};
             if (!g_model_loaded) {
-                // Model not loaded, send back an error/special value
-                // We can use a special prediction index like -1 to signify this.
                 snprintf(send_buffer, sizeof(send_buffer), "-1,0.0");
                 write(new_socket, send_buffer, strlen(send_buffer));
                 printf("[SERVER] Sent 'no model' response to client.\n");
-                continue; // Skip the rest of the loop
+                continue;
             }
 
-            forward_pass_inference(&g_model, (float*)g_hand_landmark_data, prediction_output);
+            // Use the appropriate forward pass based on the loaded model type
+            if (g_is_quantized) {
+                printf("[DIAGNOSTIC] Running QUANTIZED forward pass...\n");
+                forward_pass_quantized(&g_quantized_model, (float*)g_hand_landmark_data, prediction_output);
+            } else {
+                printf("[DIAGNOSTIC] Running FLOAT forward pass...\n");
+                forward_pass_inference(&g_float_model, (float*)g_hand_landmark_data, prediction_output);
+            }
 
             // Diagnostic: Print raw output
             printf("[DIAGNOSTIC] Raw inference output: ");

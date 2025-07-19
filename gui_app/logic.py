@@ -8,8 +8,12 @@ import time
 import numpy as np
 import socket
 import struct
+from PyQt6.QtCore import QObject, pyqtSignal, QProcess, QTimer
+
+from gui_app.config import load_gestures
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+MODELS_DIR = os.path.join(PROJECT_ROOT, 'models')
 TRACKER_VENV = os.path.join(PROJECT_ROOT, "Python_Hand_Tracker", "venv_tracker")
 TRAINING_VENV = os.path.join(PROJECT_ROOT, "Python_Hand_Tracker", "venv_training")
 SIM_DIR = os.path.join(PROJECT_ROOT, "RA8D1_Simulation")
@@ -151,29 +155,29 @@ class HandTracker:
         self.mp_drawing.draw_landmarks(frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
 
     def save_data(self, gesture, data):
-        """Save a gesture sequence to a new CSV file."""
-        gesture_dir = os.path.join(self.DATA_DIR, gesture)
-        os.makedirs(gesture_dir, exist_ok=True)
-        
-        # Find the next available file number
-        existing_files = os.listdir(gesture_dir)
-        next_file_num = 1
-        while f"{gesture}_{next_file_num}.csv" in existing_files:
-            next_file_num += 1
+        """Save a gesture sequence to a single CSV file."""
+        data_dir = os.path.join(MODELS_DIR, 'data', gesture)
+        os.makedirs(data_dir, exist_ok=True)
+        file_path = os.path.join(data_dir, f'{gesture}.csv')
 
-        file_path = os.path.join(gesture_dir, f"{gesture}_{next_file_num}.csv")
-        
-        with open(file_path, 'w', newline='') as f:
+        # Check if the file exists to decide whether to write the header
+        file_exists = os.path.isfile(file_path)
+
+        with open(file_path, 'a', newline='') as f:
             writer = csv.writer(f)
-            for frame_landmarks_flat in data:
-                if not frame_landmarks_flat: continue # Skip empty frames
-
-                # Data is already normalized from get_landmark_data() - just save it directly
-                # frame_landmarks_flat is already a list of 60 floats (20 landmarks × 3 coords, wrist excluded)
-                writer.writerow(frame_landmarks_flat)
+            # Write header only if the file is new
+            if not file_exists:
+                header = []
+                for i in range(1, 21): # 20 landmarks
+                    header.extend([f'landmark_{i}_x', f'landmark_{i}_y', f'landmark_{i}_z'])
+                writer.writerow(header)
+            
+            # Append new data
+            for frame_data in data:
+                writer.writerow(frame_data)
         
-        # Return 1 to indicate one sequence was saved
-        return 1
+        print(f"Appended {len(data)} samples to {file_path}")
+        return len(data)
 
 
 # Gesture Prediction
@@ -185,8 +189,10 @@ class GesturePredictor:
         self.port = 65432
         self.client_socket = None
         self.rfile = None # For buffered reading
-        self.classes = ['wave', 'swipe_left', 'swipe_right', 'Gesture Not Recognized']
-        self.confidence_threshold = 0.70 # 70% confidence required
+        self.last_confidence = 0.0
+        self.confidence_threshold = 0.5
+        self.classes = load_gestures() + ["No Hand Present"] # Load custom gestures
+        self.connection_timer = QTimer()
         self.sequence_length = 20 # Must match SEQUENCE_LENGTH in C backend
         self.window_stride = 5 # Must match WINDOW_STRIDE in C training code
         self.num_features = 60 # We receive 60 features per frame (20 landmarks × 3 coords)
@@ -318,4 +324,59 @@ class GesturePredictor:
         if not is_reconnecting:
             self.sequence_buffer.clear()
             print("GesturePredictor cleanup complete.")
+
+class Quantizer(QObject):
+    """Manages the C model quantization process."""
+    output_received = pyqtSignal(str)
+    quantization_finished = pyqtSignal(int)
+
+    def __init__(self):
+        super().__init__()
+        self.process = None
+
+    def run_quantization(self):
+        """Runs the C quantization executable as a separate process."""
+        if self.process and self.process.state() == QProcess.ProcessState.Running:
+            self.output_received.emit("Quantization is already in progress.")
+            return
+
+        self.process = QProcess()
+        self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self.process.readyReadStandardOutput.connect(self.on_ready_read)
+        self.process.finished.connect(self.on_process_finished)
+
+        # Define paths
+        quantize_executable = os.path.join(SIM_DIR, "quantize")
+        input_model_path = os.path.join(MODELS_DIR, "c_model.bin")
+        output_model_path = os.path.join(SIM_DIR, "c_model_quantized.bin")
+
+        # Check for executable
+        if not os.path.exists(quantize_executable):
+            self.output_received.emit(f"Error: Quantize executable not found at {quantize_executable}. Please compile the C code first.")
+            self.quantization_finished.emit(-1)
+            return
+        
+        # Check for input model
+        if not os.path.exists(input_model_path):
+            self.output_received.emit(f"Error: Base model not found at {input_model_path}. Please train a model first.")
+            self.quantization_finished.emit(-1)
+            return
+
+        # Run the quantization process
+        self.output_received.emit("Starting quantization process...\n")
+        self.process.start(quantize_executable, [input_model_path, output_model_path])
+
+    def on_ready_read(self):
+        """Emits the output from the C executable."""
+        data = self.process.readAllStandardOutput().data().decode().strip()
+        if data:
+            self.output_received.emit(data)
+
+    def on_process_finished(self, exit_code, exit_status):
+        """Handles the completion of the quantization process."""
+        if exit_status == QProcess.ExitStatus.CrashExit:
+            self.output_received.emit("\nError: The quantization process crashed.")
+        self.quantization_finished.emit(exit_code)
+        self.process = None
+
 

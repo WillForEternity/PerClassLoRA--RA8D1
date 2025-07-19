@@ -2,6 +2,7 @@
 #define TRAINING_LOGIC_H
 
 #include <stddef.h>
+#include <stdint.h> // For int8_t
 
 // Temporal Model Constants
 #define NUM_LANDMARKS 21
@@ -97,6 +98,25 @@ int load_inference_model(InferenceModel* model, const char* file_path);
 // Forward Pass
 // Training forward pass (full model)
 void forward_pass(Model* model, const float* input_data, int epoch, int sample_idx);
+
+// --- Quantization Structures and Functions ---
+
+// Struct for the quantized model
+typedef struct {
+    int8_t tcn_block_weights[TCN_CHANNELS * INPUT_SIZE * TCN_KERNEL_SIZE];
+    int8_t tcn_block_biases[TCN_CHANNELS];
+    int8_t output_layer_weights[NUM_CLASSES * TCN_CHANNELS];
+    int8_t output_layer_biases[NUM_CLASSES];
+} QuantizedModel;
+
+// Function to save the quantized model to a binary file
+void save_quantized_model(const QuantizedModel *model, const char *file_path);
+
+// Function to load the quantized model for inference
+int load_quantized_model(QuantizedModel* model, const char* file_path);
+
+// Function to run a forward pass with the quantized model
+void forward_pass_quantized(const QuantizedModel* model, const float* input, float* output);
 
 // Inference forward pass (lean model)
 void forward_pass_inference(const InferenceModel* model, const float* input_data, float* final_output);

@@ -1,11 +1,17 @@
 import cv2
 import numpy as np
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QStackedWidget
+import cv2
+import numpy as np
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QStackedWidget, 
+    QDialog, QLineEdit, QInputDialog, QListWidget, QListWidgetItem, QMessageBox
+)
 from PyQt6.QtGui import QFont, QImage, QPixmap
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot
 import time
 
 from gui_app.logic import HandTracker
+from gui_app.config import load_gestures, save_gestures
 
 class CameraWorker(QThread):
     """Worker for camera input and hand tracking."""
@@ -50,7 +56,7 @@ class CameraWorker(QThread):
                 self.collection_finished.emit(self.current_gesture, count)
                 collected_data = []
 
-            self.new_frame.emit(cv2.flip(annotated_frame, 1))
+            self.new_frame.emit(cv2.flip(annotated_frame, 1).copy())
         cap.release()
 
     def start_collection(self, gesture, num_samples):
@@ -63,6 +69,63 @@ class CameraWorker(QThread):
         self._collecting = False
         self.wait()
 
+class GestureEditDialog(QDialog):
+    """Dialog for adding, renaming, and deleting gestures."""
+    def __init__(self, gestures, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Gestures")
+        self.setMinimumWidth(300)
+
+        self.layout = QVBoxLayout(self)
+        self.list_widget = QListWidget()
+        self.list_widget.addItems(gestures)
+        self.layout.addWidget(self.list_widget)
+
+        button_layout = QHBoxLayout()
+        self.add_button = QPushButton("Add")
+        self.rename_button = QPushButton("Rename")
+        self.delete_button = QPushButton("Delete")
+        button_layout.addWidget(self.add_button)
+        button_layout.addWidget(self.rename_button)
+        button_layout.addWidget(self.delete_button)
+        self.layout.addLayout(button_layout)
+
+        # Dialog buttons
+        self.dialog_buttons = QHBoxLayout()
+        self.save_button = QPushButton("Save")
+        self.cancel_button = QPushButton("Cancel")
+        self.dialog_buttons.addWidget(self.save_button)
+        self.dialog_buttons.addWidget(self.cancel_button)
+        self.layout.addLayout(self.dialog_buttons)
+
+        # Connect signals
+        self.add_button.clicked.connect(self.add_gesture)
+        self.rename_button.clicked.connect(self.rename_gesture)
+        self.delete_button.clicked.connect(self.delete_gesture)
+        self.save_button.clicked.connect(self.accept)
+        self.cancel_button.clicked.connect(self.reject)
+
+    def add_gesture(self):
+        new_gesture, ok = QInputDialog.getText(self, "Add Gesture", "Enter new gesture name:")
+        if ok and new_gesture:
+            self.list_widget.addItem(new_gesture)
+
+    def rename_gesture(self):
+        selected_item = self.list_widget.currentItem()
+        if not selected_item:
+            return
+        new_name, ok = QInputDialog.getText(self, "Rename Gesture", "Enter new name:", text=selected_item.text())
+        if ok and new_name:
+            selected_item.setText(new_name)
+
+    def delete_gesture(self):
+        selected_item = self.list_widget.currentItem()
+        if selected_item:
+            self.list_widget.takeItem(self.list_widget.row(selected_item))
+
+    def get_gestures(self):
+        return [self.list_widget.item(i).text() for i in range(self.list_widget.count())]
+
 class DataCollectionPage(QWidget):
     # Signal to enable/disable main window navigation
     set_navigation_enabled = pyqtSignal(bool)
@@ -72,9 +135,11 @@ class DataCollectionPage(QWidget):
         self.is_setup_complete = False
         self.hand_tracker = HandTracker()
         self.worker = CameraWorker(self.hand_tracker)
-        self.data_counts = {"wave": 0, "swipe_left": 0, "swipe_right": 0}
+        self.gestures = load_gestures()
+        self.data_counts = {gesture: 0 for gesture in self.gestures} # Initialize counts to 0
 
         self.setup_ui()
+        self.update_gesture_ui()
 
         self.worker.new_frame.connect(self.update_video_feed)
         self.worker.collection_update.connect(self.update_collection_progress)
@@ -111,26 +176,28 @@ class DataCollectionPage(QWidget):
         self.video_feed.setStyleSheet("background-color: #000; border: 1px solid #444;")
         content_layout.addWidget(self.video_feed)
 
-        controls_layout = QVBoxLayout()
-        controls_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        controls_layout.addWidget(QLabel("1. Select Gesture:"))
+        self.controls_layout = QVBoxLayout()
+        self.controls_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.controls_layout.addWidget(QLabel("1. Select Gesture:"))
         self.gesture_selector = QComboBox()
-        self.gesture_selector.addItems(self.data_counts.keys())
-        controls_layout.addWidget(self.gesture_selector)
+        self.controls_layout.addWidget(self.gesture_selector)
 
-        controls_layout.addWidget(QLabel("2. Start/Stop Recording:"))
+        self.edit_gestures_button = QPushButton("Edit Gestures")
+        self.edit_gestures_button.clicked.connect(self.show_edit_gestures_dialog)
+        self.controls_layout.addWidget(self.edit_gestures_button)
+
+        self.controls_layout.addWidget(QLabel("2. Start/Stop Recording:"))
         self.record_button = QPushButton("Start Collection")
         self.record_button.clicked.connect(self.handle_record_button)
-        controls_layout.addWidget(self.record_button)
+        self.controls_layout.addWidget(self.record_button)
 
-        controls_layout.addWidget(QLabel("Samples Collected:"))
+        self.controls_layout.addWidget(QLabel("Samples Collected:"))
         self.count_labels = {}
-        for gesture in self.data_counts:
-            label = QLabel(f"{gesture.capitalize()}: {self.data_counts[gesture]}")
-            self.count_labels[gesture] = label
-            controls_layout.addWidget(label)
+        # A dedicated layout for gesture counts that can be cleared and rebuilt
+        self.gesture_counts_layout = QVBoxLayout()
+        self.controls_layout.addLayout(self.gesture_counts_layout)
         
-        content_layout.addLayout(controls_layout)
+        content_layout.addLayout(self.controls_layout)
         layout.addLayout(content_layout)
         self.page_stack.addWidget(main_view)
 
@@ -162,7 +229,10 @@ class DataCollectionPage(QWidget):
         h, w, ch = frame.shape
         bytes_per_line = ch * w
         qt_image = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888).rgbSwapped()
-        self.video_feed.setPixmap(QPixmap.fromImage(qt_image))
+        # Scale the image to fit the label, maintaining aspect ratio
+        pixmap = QPixmap.fromImage(qt_image)
+        scaled_pixmap = pixmap.scaled(self.video_feed.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        self.video_feed.setPixmap(scaled_pixmap)
 
     def set_setup_status(self, is_complete):
         self.is_setup_complete = is_complete
@@ -180,3 +250,33 @@ class DataCollectionPage(QWidget):
         super().hideEvent(event)
         if self.worker.isRunning():
             self.worker.stop()
+
+    def show_edit_gestures_dialog(self):
+        dialog = GestureEditDialog(self.gestures, self)
+        if dialog.exec():
+            new_gestures = dialog.get_gestures()
+            if new_gestures != self.gestures:
+                self.gestures = new_gestures
+                save_gestures(self.gestures)
+                self.update_gesture_ui()
+
+    def update_gesture_ui(self):
+        # Update gesture selector
+        self.gesture_selector.clear()
+        self.gesture_selector.addItems(self.gestures)
+
+        # Rebuild data counts and labels
+        self.data_counts = {gesture: self.data_counts.get(gesture, 0) for gesture in self.gestures}
+        
+        # Clear old labels from the dedicated layout
+        while self.gesture_counts_layout.count():
+            child = self.gesture_counts_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        self.count_labels.clear()
+
+        # Create and add new labels
+        for gesture in self.gestures:
+            label = QLabel(f"{gesture.capitalize()}: {self.data_counts[gesture]}")
+            self.count_labels[gesture] = label
+            self.gesture_counts_layout.addWidget(label)

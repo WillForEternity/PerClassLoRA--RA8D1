@@ -64,13 +64,6 @@ void save_model(const Model* model, const char* file_path) {
     fwrite(model->output_layer.weights, sizeof(model->output_layer.weights), 1, fp);
     fwrite(model->output_layer.biases, sizeof(model->output_layer.biases), 1, fp);
     
-    // Diagnostic: show saved weights
-    printf("[SAVE DIAGNOSTIC] Saving output layer weights:\n");
-    for (int i = 0; i < 5; ++i) {
-        printf("  weight[%d]: %.6f\n", i, model->output_layer.weights[i]);
-    }
-    printf("  bias[0]: %.6f\n", model->output_layer.biases[0]);
-
     fclose(fp);
     printf("Model saved to %s.\n", file_path);
 }
@@ -105,6 +98,46 @@ int load_inference_model(InferenceModel* model, const char* file_path) {
     return success;
 }
 
+void save_quantized_model(const QuantizedModel *model, const char *file_path) {
+    FILE *file = fopen(file_path, "wb");
+    if (!file) {
+        perror("Failed to open file for writing");
+        return;
+    }
+
+    fwrite(model->tcn_block_weights, sizeof(int8_t), TCN_CHANNELS * INPUT_SIZE * TCN_KERNEL_SIZE, file);
+    fwrite(model->tcn_block_biases, sizeof(int8_t), TCN_CHANNELS, file);
+    fwrite(model->output_layer_weights, sizeof(int8_t), NUM_CLASSES * TCN_CHANNELS, file);
+    fwrite(model->output_layer_biases, sizeof(int8_t), NUM_CLASSES, file);
+
+    fclose(file);
+    printf("Quantized model saved to %s.\n", file_path);
+}
+
+int load_quantized_model(QuantizedModel* model, const char* file_path) {
+    FILE* file = fopen(file_path, "rb");
+    if (!file) {
+        perror("Failed to open quantized model file");
+        return 0; // File not found or error
+    }
+
+    size_t tcn_weights_read = fread(model->tcn_block_weights, sizeof(model->tcn_block_weights), 1, file);
+    size_t tcn_biases_read = fread(model->tcn_block_biases, sizeof(model->tcn_block_biases), 1, file);
+    size_t out_weights_read = fread(model->output_layer_weights, sizeof(model->output_layer_weights), 1, file);
+    size_t out_biases_read = fread(model->output_layer_biases, sizeof(model->output_layer_biases), 1, file);
+
+    fclose(file);
+
+    int success = (tcn_weights_read == 1 && tcn_biases_read == 1 && 
+                   out_weights_read == 1 && out_biases_read == 1);
+
+    if (!success) {
+        fprintf(stderr, "Error: Failed to read all components of the quantized model file.\n");
+    }
+
+    return success;
+}
+
 // Activation Functions
 // Leaky ReLU to prevent dying ReLU problem
 float leaky_relu(float x) {
@@ -124,6 +157,66 @@ static void softmax(float* input, float* output, size_t size) {
         sum_exp += output[i];
     }
     for (size_t i = 0; i < size; ++i) output[i] /= sum_exp;
+}
+
+// Forward Pass (Quantized Inference)
+void forward_pass_quantized(const QuantizedModel* model, const float* input, float* output) {
+    // This implementation mirrors the float forward pass but uses integer arithmetic.
+
+    // 1. Quantize the input float data to int8_t
+    int8_t quantized_input[SEQUENCE_LENGTH * INPUT_SIZE];
+    for (int i = 0; i < SEQUENCE_LENGTH * INPUT_SIZE; ++i) {
+        // Symmetric quantization for the input signal
+        quantized_input[i] = (int8_t)fmaxf(-128.0f, fminf(127.0f, input[i] * 127.0f));
+    }
+
+    // 2. TCN Layer
+    // Accumulate in a wider type (int32_t) to prevent overflow during multiplication.
+    int32_t tcn_output_i32[TCN_CHANNELS] = {0};
+
+    for (int c = 0; c < TCN_CHANNELS; ++c) {
+        int32_t accumulator = 0;
+        for (int i = 0; i < INPUT_SIZE; ++i) {
+            for (int k = 0; k < TCN_KERNEL_SIZE; ++k) {
+                int input_idx = (i * TCN_KERNEL_SIZE + k) % (SEQUENCE_LENGTH * INPUT_SIZE); // Simplified indexing
+                int weight_idx = c * (INPUT_SIZE * TCN_KERNEL_SIZE) + i * TCN_KERNEL_SIZE + k;
+                accumulator += (int32_t)quantized_input[input_idx] * model->tcn_block_weights[weight_idx];
+            }
+        }
+        // Add bias. Note: biases are int8. The accumulator is int32.
+        tcn_output_i32[c] = accumulator + model->tcn_block_biases[c];
+    }
+
+    // 3. Leaky ReLU Activation
+    // We apply a simplified integer-based Leaky ReLU.
+    // For x < 0, y = x * 0.01. In integer math, we can approximate this by right-shifting.
+    // A shift by 7 is approx division by 128 (close to 1/100).
+    for (int i = 0; i < TCN_CHANNELS; ++i) {
+        if (tcn_output_i32[i] < 0) {
+            tcn_output_i32[i] = tcn_output_i32[i] >> 7; // Approximates multiplication by ~0.0078
+        }
+    }
+
+    // 4. Output Layer
+    int32_t final_output_i32[NUM_CLASSES] = {0};
+    for (int j = 0; j < NUM_CLASSES; ++j) {
+        int32_t accumulator = 0;
+        for (int i = 0; i < TCN_CHANNELS; ++i) {
+            accumulator += tcn_output_i32[i] * model->output_layer_weights[j * TCN_CHANNELS + i];
+        }
+        final_output_i32[j] = accumulator + model->output_layer_biases[j];
+    }
+
+    // 5. De-quantize the final output back to float
+    // The result is a combination of two int8 multiplications and one int32 accumulation.
+    // A simple scaling factor is used to bring it back to a float range for softmax.
+    const float dequant_scale = 1.0f / (127.0f * 127.0f); 
+    for (int i = 0; i < NUM_CLASSES; ++i) {
+        output[i] = (float)final_output_i32[i] * dequant_scale;
+    }
+
+    // 6. Softmax (operates on the final float values)
+    softmax(output, output, NUM_CLASSES);
 }
 
 // Forward Pass (Inference)
@@ -361,43 +454,40 @@ int load_temporal_data(const char* dir_path, const char** gestures, int num_gest
     char path[1024];
     int total_sequences = 0;
 
-    // Count sequences
-    printf("Counting sequences...\n");
+    // Pass 1: Count total number of sequences from single consolidated CSV files
+    printf("Pass 1: Counting sequences from consolidated CSVs...\n");
     for (int i = 0; i < num_gestures; i++) {
-        snprintf(path, sizeof(path), "%s/%s", dir_path, gestures[i]);
-        DIR *d = opendir(path);
-        if (!d) {
-            printf("Warning: Could not open directory %s\n", path);
+        snprintf(path, sizeof(path), "%s/%s/%s.csv", dir_path, gestures[i], gestures[i]);
+        FILE* file = fopen(path, "r");
+        if (!file) {
+            printf("Info: No data file for gesture '%s'. Skipping.\n", gestures[i]);
             continue;
         }
-        struct dirent *dir;
-        while ((dir = readdir(d)) != NULL) {
-            if (strstr(dir->d_name, ".csv") == NULL) continue;
-            
-            char file_path[2048];
-            snprintf(file_path, sizeof(file_path), "%s/%s", path, dir->d_name);
-            FILE* file = fopen(file_path, "r");
-            if (!file) continue;
 
-            int frame_count = 0;
-            char line_buffer[4096];
-            while (fgets(line_buffer, sizeof(line_buffer), file)) {
-                frame_count++;
-            }
+        int frame_count = 0;
+        char line[4096];
+        // Skip header
+        if (fgets(line, sizeof(line), file) == NULL) {
             fclose(file);
-
-            if (frame_count >= SEQUENCE_LENGTH) {
-                total_sequences += (frame_count - SEQUENCE_LENGTH) / WINDOW_STRIDE + 1;
-            }
+            continue; // File is empty or just a header
         }
-        closedir(d);
-    }
+        // Count data lines
+        while (fgets(line, sizeof(line), file)) {
+            frame_count++;
+        }
+        fclose(file);
 
-    if (total_sequences == 0) {
-        fprintf(stderr, "Error: No valid data sequences found. All files might be shorter than SEQUENCE_LENGTH (%d).\n", SEQUENCE_LENGTH);
-        return -1;
+        if (frame_count >= SEQUENCE_LENGTH) {
+            total_sequences += (frame_count - SEQUENCE_LENGTH) / WINDOW_STRIDE + 1;
+        }
     }
     printf("Pass 1 complete. Found %d possible sequences. Allocating memory...\n", total_sequences);
+
+    if (total_sequences == 0) {
+        fprintf(stderr, "Error: No sequences found to load. Check data directories and file contents.\n");
+        *out_num_sequences = 0;
+        return -1;
+    }
 
     // --- Memory Allocation ---
     *out_data = (float*)malloc(total_sequences * SEQUENCE_LENGTH * INPUT_SIZE * sizeof(float));
@@ -411,69 +501,53 @@ int load_temporal_data(const char* dir_path, const char** gestures, int num_gest
     printf("Pass 2: Loading data...\n");
     int current_sequence_idx = 0;
     for (int i = 0; i < num_gestures; i++) {
-        snprintf(path, sizeof(path), "%s/%s", dir_path, gestures[i]);
-        DIR *d = opendir(path);
-        if (!d) continue;
-        struct dirent *dir;
-        while ((dir = readdir(d)) != NULL) {
-            if (strstr(dir->d_name, ".csv") == NULL) continue;
+        snprintf(path, sizeof(path), "%s/%s/%s.csv", dir_path, gestures[i], gestures[i]);
+        FILE* file = fopen(path, "r");
+        if (!file) continue;
 
-            char file_path[2048];
-            snprintf(file_path, sizeof(file_path), "%s/%s", path, dir->d_name);
-            FILE* file = fopen(file_path, "r");
-            if (!file) continue;
-
-            // Count lines to determine exact memory needed for this file
-            int frame_count = 0;
-            char line[4096];
-            while (fgets(line, sizeof(line), file)) {
-                frame_count++;
-            }
-            rewind(file); // Go back to the start of the file
-
-            if (frame_count == 0) { fclose(file); continue; }
-
-            // Allocate buffer for file contents
-            float* temp_frames = (float*)malloc(frame_count * INPUT_SIZE * sizeof(float));
-            if (temp_frames == NULL) { 
-                perror("Failed to allocate temp buffer");
-                fclose(file); 
-                continue; 
-            }
-
-            // Read frames into buffer
-            int current_frame = 0;
-            while (fgets(line, sizeof(line), file) && current_frame < frame_count) {
-                char* token = strtok(line, ",");
-                for (int feat = 0; feat < INPUT_SIZE && token != NULL; feat++) {
-                    temp_frames[current_frame * INPUT_SIZE + feat] = atof(token);
-                    token = strtok(NULL, ",");
-                }
-                current_frame++;
-            }
-            fclose(file);
-
-            // Create overlapping windows
-            if (frame_count >= SEQUENCE_LENGTH) {
-                for (int start_frame = 0; start_frame <= frame_count - SEQUENCE_LENGTH; start_frame += WINDOW_STRIDE) {
-                    if (current_sequence_idx >= total_sequences) {
-                        fprintf(stderr, "Error: Out of bounds write imminent. Check counting logic.\n");
-                        break;
-                    }
-                    float* data_ptr = &((*out_data)[current_sequence_idx * SEQUENCE_LENGTH * INPUT_SIZE]);
-                    memcpy(data_ptr, &temp_frames[start_frame * INPUT_SIZE], SEQUENCE_LENGTH * INPUT_SIZE * sizeof(float));
-                    (*out_labels)[current_sequence_idx] = i;
-                    current_sequence_idx++;
-                }
-            }
-            free(temp_frames);
+        // Count frames again to size the buffer
+        int frame_count = 0;
+        char line[4096];
+        fgets(line, sizeof(line), file); // Skip header
+        while (fgets(line, sizeof(line), file)) {
+            frame_count++;
         }
-        closedir(d);
+        rewind(file); // Go back to the start
+        fgets(line, sizeof(line), file); // Skip header again
+
+        if (frame_count < SEQUENCE_LENGTH) { fclose(file); continue; }
+
+        float* temp_frames = (float*)malloc(frame_count * INPUT_SIZE * sizeof(float));
+        if (!temp_frames) { perror("Failed to allocate temp buffer"); fclose(file); continue; }
+
+        // Read all frames into buffer
+        int current_frame = 0;
+        while (current_frame < frame_count && fgets(line, sizeof(line), file)) {
+            char* token = strtok(line, ",");
+            for (int feat = 0; feat < INPUT_SIZE && token != NULL; feat++) {
+                temp_frames[current_frame * INPUT_SIZE + feat] = atof(token);
+                token = strtok(NULL, ",");
+            }
+            current_frame++;
+        }
+        fclose(file);
+
+        // Create overlapping windows from the buffer
+        for (int start_frame = 0; start_frame <= frame_count - SEQUENCE_LENGTH; start_frame += WINDOW_STRIDE) {
+            if (current_sequence_idx >= total_sequences) {
+                fprintf(stderr, "Error: Out of bounds write imminent. Check counting logic.\n");
+                break;
+            }
+            float* data_ptr = &((*out_data)[current_sequence_idx * SEQUENCE_LENGTH * INPUT_SIZE]);
+            memcpy(data_ptr, &temp_frames[start_frame * INPUT_SIZE], SEQUENCE_LENGTH * INPUT_SIZE * sizeof(float));
+            (*out_labels)[current_sequence_idx] = i;
+            current_sequence_idx++;
+        }
+        free(temp_frames);
     }
 
     *out_num_sequences = current_sequence_idx;
     printf("Pass 2 complete. Loaded %d sequences.\n", *out_num_sequences);
-
 
     return 0; // Success
 }

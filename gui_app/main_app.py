@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt
 from gui_app.setup_page import SetupPage
 from gui_app.data_collection_page import DataCollectionPage
 from gui_app.training_page import TrainingPage
+from gui_app.quantize_page import QuantizePage
 from gui_app.inference_page import InferencePage
 
 class MainWindow(QMainWindow):
@@ -67,6 +68,7 @@ class MainWindow(QMainWindow):
             "Setup": SetupPage(),
             "Data Collection": DataCollectionPage(),
             "Training": TrainingPage(),
+            "Quantize": QuantizePage(),
             "Inference": InferencePage()
         }
         for name, page in self.pages.items():
@@ -78,6 +80,7 @@ class MainWindow(QMainWindow):
         self.pages["Data Collection"].set_navigation_enabled.connect(self.set_navigation_enabled)
         self.pages["Training"].set_navigation_enabled.connect(self.set_navigation_enabled)
         self.pages["Inference"].set_navigation_enabled.connect(self.set_navigation_enabled)
+        self.pages["Quantize"].set_navigation_enabled.connect(self.set_navigation_enabled)
 
         self.nav_button_group = QButtonGroup(self)
         self.nav_button_group.setExclusive(True)
